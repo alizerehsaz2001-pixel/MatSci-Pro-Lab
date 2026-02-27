@@ -56,11 +56,18 @@ const ExternalImportModal = ({ isOpen, onClose, onImport, addToast }) => {
     setResults([]);
     try {
       let data = [];
-      if (provider === 'google_search') {
+      
+      // Group AI-based search providers
+      if (['google_search', 'nist', 'aflow', 'optimade'].includes(provider)) {
         // Initialize Gemini with the API Key from environment variables
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         
-        const prompt = `Find the material properties for "${query}". 
+        let sourcePrompt = "";
+        if (provider === 'nist') sourcePrompt = "specifically from the NIST (National Institute of Standards and Technology) or JARVIS databases";
+        else if (provider === 'aflow') sourcePrompt = "specifically from the AFLOW database";
+        else if (provider === 'optimade') sourcePrompt = "specifically from OPTIMADE-compatible databases";
+        
+        const prompt = `Find the material properties for "${query}" ${sourcePrompt}. 
         Return a JSON object with the following fields: 
         - name (string)
         - category (one of 'Metals & Alloys', 'Polymers', 'Ceramics', 'Composites', 'Semiconductors', 'Biomaterials')
@@ -112,7 +119,7 @@ const ExternalImportModal = ({ isOpen, onClose, onImport, addToast }) => {
             const item = JSON.parse(text);
             data = [{
               ...item,
-              source: 'google_search',
+              source: provider === 'google_search' ? 'manual' : provider, // Map google_search to manual or keep as is? The badge logic handles 'nist' and 'materialsproject'. Let's use the provider name.
               // Ensure defaults if AI returns null
               density: item.density || 0,
               yieldStrength: item.yieldStrength || 0,
@@ -154,15 +161,6 @@ const ExternalImportModal = ({ isOpen, onClose, onImport, addToast }) => {
           source: 'materialsproject',
           notes: `Imported from MP ID: ${item.material_id}`
         }));
-      } else {
-        // Simulation for other providers where direct API access might be restricted or complex
-        // In a real app, these would hit their respective endpoints
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Fake delay
-        if (query.toLowerCase() === 'fe') {
-             data = [{ name: 'Iron (Fe)', category: 'Metals & Alloys', density: 7.87, source: provider, notes: 'Simulated result' }];
-        } else {
-             throw new Error(`${provider} integration requires specific API configuration or proxy.`);
-        }
       }
       
       if (data.length === 0) addToast('No results found', 'warning');
