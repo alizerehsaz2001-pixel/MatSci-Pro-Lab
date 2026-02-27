@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Search, Plus, Download, Upload, SlidersHorizontal, Trash2, Edit, X, AlertTriangle, ChevronLeft, ChevronRight, BarChart2, CheckSquare, Square, Database, Activity } from 'lucide-react';
+import { Search, Plus, Download, Upload, SlidersHorizontal, Trash2, Edit, X, AlertTriangle, ChevronLeft, ChevronRight, BarChart2, CheckSquare, Square, Globe } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const CATEGORIES = ["Metals & Alloys", "Polymers", "Ceramics", "Composites", "Semiconductors", "Biomaterials"];
@@ -39,7 +39,128 @@ const Toast = ({ message, type, onClose }) => {
   );
 };
 
-export default function MaterialsDatabase({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme, onNavigate }) {
+const ExternalImportModal = ({ isOpen, onClose, onImport, addToast }) => {
+  const [provider, setProvider] = useState('materialsproject');
+  const [apiKey, setApiKey] = useState('');
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState([]);
+
+  const handleSearch = async () => {
+    if (!query) {
+      addToast('Please enter a search query (e.g., formula)', 'error');
+      return;
+    }
+    setLoading(true);
+    setResults([]);
+    try {
+      let data = [];
+      if (provider === 'materialsproject') {
+        if (!apiKey) throw new Error('API Key is required for Materials Project');
+        const response = await fetch(`https://api.materialsproject.org/materials/summary/?formula=${query}&_limit=5&fields=material_id,formula_pretty,density,elasticity`, {
+          headers: { 'X-API-KEY': apiKey }
+        });
+        if (!response.ok) throw new Error('Failed to fetch from Materials Project. Check API Key.');
+        const json = await response.json();
+        data = json.data.map(item => ({
+          name: item.formula_pretty,
+          category: 'Metals & Alloys',
+          density: item.density,
+          yieldStrength: 0,
+          uts: 0,
+          youngsModulus: item.elasticity ? item.elasticity.k_vrh : 0,
+          hardness: 0,
+          meltingPoint: 0,
+          thermalConductivity: 0,
+          electricalResistivity: 0,
+          poissonRatio: item.elasticity ? item.elasticity.poisson_ratio : 0,
+          elongation: 0,
+          source: 'materialsproject',
+          notes: `Imported from MP ID: ${item.material_id}`
+        }));
+      } else {
+        // Simulation for other providers where direct API access might be restricted or complex
+        // In a real app, these would hit their respective endpoints
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Fake delay
+        if (query.toLowerCase() === 'fe') {
+             data = [{ name: 'Iron (Fe)', category: 'Metals & Alloys', density: 7.87, source: provider, notes: 'Simulated result' }];
+        } else {
+             throw new Error(`${provider} integration requires specific API configuration or proxy.`);
+        }
+      }
+      
+      if (data.length === 0) addToast('No results found', 'warning');
+      setResults(data);
+    } catch (err) {
+      addToast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-[#1A2634] border border-[#2D3F50] rounded-lg shadow-2xl w-full max-w-2xl flex flex-col animate-in zoom-in-95">
+        <div className="flex items-center justify-between p-6 border-b border-[#2D3F50]">
+          <h2 className="text-xl font-bold text-[#F1F5F9] flex items-center gap-2">
+            <Globe className="text-[#4A9EFF]" /> Import from External Database
+          </h2>
+          <button onClick={onClose} className="text-[#94A3B8] hover:text-[#F1F5F9]"><X size={24} /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-[#94A3B8] mb-1">Database Provider</label>
+              <select value={provider} onChange={e => setProvider(e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none">
+                <option value="materialsproject">Materials Project</option>
+                <option value="nist">NIST / JARVIS</option>
+                <option value="aflow">AFLOW</option>
+                <option value="optimade">OPTIMADE</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-[#94A3B8] mb-1">Search Query (Formula)</label>
+              <input type="text" placeholder="e.g. Fe2O3" value={query} onChange={e => setQuery(e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+            </div>
+          </div>
+          
+          {provider === 'materialsproject' && (
+            <div>
+              <label className="block text-sm text-[#94A3B8] mb-1">API Key (Required)</label>
+              <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Enter your Materials Project API Key" className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              <p className="text-xs text-[#94A3B8] mt-1">Get your key from <a href="https://next-gen.materialsproject.org/api" target="_blank" rel="noreferrer" className="text-[#4A9EFF] hover:underline">materialsproject.org/api</a></p>
+            </div>
+          )}
+
+          <button onClick={handleSearch} disabled={loading} className="w-full bg-[#4A9EFF] text-white py-2 rounded-md hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2">
+            {loading ? 'Searching...' : <><Search size={16} /> Search Database</>}
+          </button>
+
+          {results.length > 0 && (
+            <div className="mt-4 border-t border-[#2D3F50] pt-4">
+              <h3 className="text-sm font-medium text-[#F1F5F9] mb-2">Results</h3>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {results.map((item, idx) => (
+                  <div key={idx} className="bg-[#0F1923] p-3 rounded-md border border-[#2D3F50] flex justify-between items-center">
+                    <div>
+                      <div className="font-medium text-[#F1F5F9]">{item.name}</div>
+                      <div className="text-xs text-[#94A3B8]">Density: {item.density?.toFixed(2)} g/cm³</div>
+                    </div>
+                    <button onClick={() => { onImport(item); onClose(); }} className="bg-[#22C55E] text-white px-3 py-1 rounded text-xs hover:bg-green-600">Import</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default function MaterialsDatabase({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -49,6 +170,7 @@ export default function MaterialsDatabase({ materials, setMaterials, testLogs, s
   const [showCompare, setShowCompare] = useState(false);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState(null);
   const [toasts, setToasts] = useState([]);
@@ -122,19 +244,18 @@ export default function MaterialsDatabase({ materials, setMaterials, testLogs, s
       return;
     }
 
-    const numericFields = [
+    const nonNegativeFields = [
       { key: 'density', label: 'Density' },
       { key: 'yieldStrength', label: 'Yield Strength' },
       { key: 'uts', label: 'UTS' },
       { key: 'youngsModulus', label: 'Young\'s Modulus' },
       { key: 'hardness', label: 'Hardness' },
-      { key: 'meltingPoint', label: 'Melting Point' },
       { key: 'thermalConductivity', label: 'Thermal Conductivity' },
       { key: 'electricalResistivity', label: 'Electrical Resistivity' },
       { key: 'elongation', label: 'Elongation' }
     ];
 
-    for (let field of numericFields) {
+    for (const field of nonNegativeFields) {
       if (Number(formData[field.key]) < 0) {
         addToast(`${field.label} cannot be negative`, 'error');
         return;
@@ -191,14 +312,13 @@ export default function MaterialsDatabase({ materials, setMaterials, testLogs, s
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const text = event.target?.result;
-        if (typeof text !== 'string') return;
+        const text = event.target.result;
         const lines = text.split('\n').filter(l => l.trim());
         if (lines.length < 2) throw new Error('Invalid CSV');
         const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
         const newMaterials = lines.slice(1).map(line => {
           const values = line.split(',').map(v => v.replace(/"/g, '').trim());
-          const obj: any = {};
+          const obj = {};
           headers.forEach((h, i) => {
             obj[h] = isNaN(Number(values[i])) ? values[i] : Number(values[i]);
           });
@@ -241,6 +361,9 @@ export default function MaterialsDatabase({ materials, setMaterials, testLogs, s
           </button>
           <button onClick={handleExportJSON} className="bg-[#1A2634] border border-[#2D3F50] text-[#F1F5F9] px-3 py-2 rounded-md hover:bg-[#2D3F50] transition-colors flex items-center gap-2 text-sm">
             <Download size={16} /> JSON
+          </button>
+          <button onClick={() => setIsImportModalOpen(true)} className="bg-[#1A2634] border border-[#2D3F50] text-[#F1F5F9] px-3 py-2 rounded-md hover:bg-[#2D3F50] transition-colors flex items-center gap-2 text-sm">
+            <Globe size={16} /> Import from External DB
           </button>
           <button onClick={() => openModal()} className="bg-[#4A9EFF] text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors flex items-center gap-2 text-sm font-medium shadow-lg">
             <Plus size={16} /> Add Material
@@ -311,18 +434,9 @@ export default function MaterialsDatabase({ materials, setMaterials, testLogs, s
               {materials.length === 0 ? (
                 <tr>
                   <td colSpan={14} className="p-12 text-center">
-                    <div className="flex flex-col items-center justify-center py-8">
-                      <Database size={48} className="text-[#2D3F50] mb-4" />
-                      <h3 className="text-xl font-bold text-[#F1F5F9] mb-2">Database Empty</h3>
-                      <p className="text-[#94A3B8] mb-6">No materials found. Add a new material to get started.</p>
-                      <div className="flex gap-4">
-                        <button onClick={() => openModal()} className="bg-[#4A9EFF] text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors flex items-center gap-2 text-sm font-medium shadow-lg">
-                          <Plus size={16} /> Add Material
-                        </button>
-                        <button onClick={loadSampleData} className="bg-[#1A2634] border border-[#2D3F50] text-[#F1F5F9] px-4 py-2 rounded-md hover:bg-[#2D3F50] transition-colors text-sm font-medium">
-                          Load Sample Data
-                        </button>
-                      </div>
+                    <div className="flex flex-col items-center justify-center">
+                      <p className="text-[#94A3B8] mb-4 text-lg">No materials added yet. Click 'Add Material' to get started.</p>
+                      <button onClick={loadSampleData} className="text-[#4A9EFF] hover:underline text-sm">Or load sample data</button>
                     </div>
                   </td>
                 </tr>
@@ -352,15 +466,8 @@ export default function MaterialsDatabase({ materials, setMaterials, testLogs, s
                     <td className="p-3"><SourceBadge source={m.source} /></td>
                     <td className="p-3">
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
-                          onClick={() => onNavigate('Analysis & Calculations')} 
-                          className="text-[#F59E0B] hover:text-amber-400"
-                          title="Analyze Material"
-                        >
-                          <Activity size={16} />
-                        </button>
-                        <button onClick={() => openModal(m)} className="text-[#4A9EFF] hover:text-blue-400" title="Edit"><Edit size={16} /></button>
-                        <button onClick={() => setDeleteConfirmId(m.id)} className="text-[#EF4444] hover:text-red-400" title="Delete"><Trash2 size={16} /></button>
+                        <button onClick={() => openModal(m)} className="text-[#4A9EFF] hover:text-blue-400"><Edit size={16} /></button>
+                        <button onClick={() => setDeleteConfirmId(m.id)} className="text-[#EF4444] hover:text-red-400"><Trash2 size={16} /></button>
                       </div>
                     </td>
                   </tr>
@@ -480,6 +587,17 @@ export default function MaterialsDatabase({ materials, setMaterials, testLogs, s
         </div>
       )}
 
+      {/* External Import Modal */}
+      <ExternalImportModal 
+        isOpen={isImportModalOpen} 
+        onClose={() => setIsImportModalOpen(false)} 
+        onImport={(material) => {
+          setMaterials(prev => [...prev, { ...material, id: `MAT-${Date.now()}`, createdAt: new Date().toISOString() }]);
+          addToast('Material imported successfully');
+        }}
+        addToast={addToast}
+      />
+
       {/* Add/Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -533,7 +651,7 @@ export default function MaterialsDatabase({ materials, setMaterials, testLogs, s
                     ].map(field => (
                       <div key={field.key}>
                         <label className="block text-xs text-[#94A3B8] mb-1">{field.label}</label>
-                        <input type="number" min="0" step="any" value={formData[field.key]} onChange={e => setFormData({...formData, [field.key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
+                        <input type="number" step="any" value={formData[field.key]} onChange={e => setFormData({...formData, [field.key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
                       </div>
                     ))}
                   </div>
