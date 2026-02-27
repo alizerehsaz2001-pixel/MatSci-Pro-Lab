@@ -75,7 +75,7 @@ export default function App() {
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden flex flex-col">
-        {currentModule === 'Dashboard' && (
+        <div className={currentModule === 'Dashboard' ? 'h-full' : 'hidden'}>
           <Dashboard 
             materials={materials}
             setMaterials={setMaterials}
@@ -84,10 +84,9 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
-            onNavigate={setCurrentModule}
           />
-        )}
-        {currentModule === 'Materials Database' && (
+        </div>
+        <div className={currentModule === 'Materials Database' ? 'h-full' : 'hidden'}>
           <MaterialsDatabase 
             materials={materials}
             setMaterials={setMaterials}
@@ -96,10 +95,9 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
-            onNavigate={setCurrentModule}
           />
-        )}
-        {currentModule === 'Mechanical Properties' && (
+        </div>
+        <div className={currentModule === 'Mechanical Properties' ? 'h-full' : 'hidden'}>
           <MechanicalProperties 
             materials={materials}
             setMaterials={setMaterials}
@@ -108,10 +106,9 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
-            onNavigate={setCurrentModule}
           />
-        )}
-        {currentModule === 'Physical Properties' && (
+        </div>
+        <div className={currentModule === 'Physical Properties' ? 'h-full' : 'hidden'}>
           <PhysicalProperties 
             materials={materials}
             setMaterials={setMaterials}
@@ -120,10 +117,9 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
-            onNavigate={setCurrentModule}
           />
-        )}
-        {currentModule === 'Analysis & Calculations' && (
+        </div>
+        <div className={currentModule === 'Analysis & Calculations' ? 'h-full' : 'hidden'}>
           <AnalysisCalculations 
             materials={materials}
             setMaterials={setMaterials}
@@ -132,10 +128,9 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
-            onNavigate={setCurrentModule}
           />
-        )}
-        {currentModule === 'Testing & Standards' && (
+        </div>
+        <div className={currentModule === 'Testing & Standards' ? 'h-full' : 'hidden'}>
           <TestingStandards 
             materials={materials}
             setMaterials={setMaterials}
@@ -144,10 +139,9 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
-            onNavigate={setCurrentModule}
           />
-        )}
-        {currentModule === 'Reports' && (
+        </div>
+        <div className={currentModule === 'Reports' ? 'h-full' : 'hidden'}>
           <ReportsExport 
             materials={materials}
             setMaterials={setMaterials}
@@ -156,10 +150,9 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
-            onNavigate={setCurrentModule}
           />
-        )}
-        {currentModule === 'User Management' && (
+        </div>
+        <div className={currentModule === 'User Management' ? 'h-full' : 'hidden'}>
           <UserManagement 
             materials={materials}
             setMaterials={setMaterials}
@@ -168,10 +161,9 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
-            onNavigate={setCurrentModule}
           />
-        )}
-        {currentModule === 'Settings' && (
+        </div>
+        <div className={currentModule === 'Settings' ? 'h-full' : 'hidden'}>
           <Settings 
             materials={materials}
             setMaterials={setMaterials}
@@ -180,17 +172,8 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
-            onNavigate={setCurrentModule}
           />
-        )}
-        {currentModule !== 'Dashboard' && currentModule !== 'Materials Database' && currentModule !== 'Mechanical Properties' && currentModule !== 'Physical Properties' && currentModule !== 'Analysis & Calculations' && currentModule !== 'Testing & Standards' && currentModule !== 'Reports' && currentModule !== 'User Management' && currentModule !== 'Settings' && (
-          <div className="flex-1 flex items-center justify-center text-[#94A3B8]">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold mb-2">{currentModule}</h2>
-              <p>Module coming soon...</p>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );

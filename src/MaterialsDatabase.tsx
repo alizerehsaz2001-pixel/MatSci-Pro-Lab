@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Search, Plus, Download, Upload, SlidersHorizontal, Trash2, Edit, X, AlertTriangle, ChevronLeft, ChevronRight, BarChart2, CheckSquare, Square, Globe } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { GoogleGenAI, Type } from "@google/genai";
 
 const CATEGORIES = ["Metals & Alloys", "Polymers", "Ceramics", "Composites", "Semiconductors", "Biomaterials"];
 
@@ -55,7 +56,82 @@ const ExternalImportModal = ({ isOpen, onClose, onImport, addToast }) => {
     setResults([]);
     try {
       let data = [];
-      if (provider === 'materialsproject') {
+      if (provider === 'google_search') {
+        // Initialize Gemini with the API Key from environment variables
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        
+        const prompt = `Find the material properties for "${query}". 
+        Return a JSON object with the following fields: 
+        - name (string)
+        - category (one of 'Metals & Alloys', 'Polymers', 'Ceramics', 'Composites', 'Semiconductors', 'Biomaterials')
+        - density (number in g/cm³)
+        - yieldStrength (number in MPa)
+        - uts (number in MPa)
+        - youngsModulus (number in GPa)
+        - hardness (number in HV)
+        - meltingPoint (number in °C)
+        - thermalConductivity (number in W/m·K)
+        - electricalResistivity (number in Ω·m)
+        - poissonRatio (number)
+        - elongation (number in %)
+        
+        If a value is not found, use 0 or null. 
+        Also include a 'notes' field with the source URL if available.
+        Return ONLY the JSON object, no markdown code blocks.`;
+
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                category: { type: Type.STRING },
+                density: { type: Type.NUMBER },
+                yieldStrength: { type: Type.NUMBER },
+                uts: { type: Type.NUMBER },
+                youngsModulus: { type: Type.NUMBER },
+                hardness: { type: Type.NUMBER },
+                meltingPoint: { type: Type.NUMBER },
+                thermalConductivity: { type: Type.NUMBER },
+                electricalResistivity: { type: Type.NUMBER },
+                poissonRatio: { type: Type.NUMBER },
+                elongation: { type: Type.NUMBER },
+                notes: { type: Type.STRING }
+              }
+            }
+          }
+        });
+
+        const text = response.text;
+        if (text) {
+          try {
+            const item = JSON.parse(text);
+            data = [{
+              ...item,
+              source: 'google_search',
+              // Ensure defaults if AI returns null
+              density: item.density || 0,
+              yieldStrength: item.yieldStrength || 0,
+              uts: item.uts || 0,
+              youngsModulus: item.youngsModulus || 0,
+              hardness: item.hardness || 0,
+              meltingPoint: item.meltingPoint || 0,
+              thermalConductivity: item.thermalConductivity || 0,
+              electricalResistivity: item.electricalResistivity || 0,
+              poissonRatio: item.poissonRatio || 0,
+              elongation: item.elongation || 0,
+            }];
+          } catch (e) {
+            console.error("Failed to parse AI response", e);
+            throw new Error("Failed to parse AI response");
+          }
+        }
+
+      } else if (provider === 'materialsproject') {
         if (!apiKey) throw new Error('API Key is required for Materials Project');
         const response = await fetch(`https://api.materialsproject.org/materials/summary/?formula=${query}&_limit=5&fields=material_id,formula_pretty,density,elasticity`, {
           headers: { 'X-API-KEY': apiKey }
@@ -114,6 +190,7 @@ const ExternalImportModal = ({ isOpen, onClose, onImport, addToast }) => {
             <div>
               <label className="block text-sm text-[#94A3B8] mb-1">Database Provider</label>
               <select value={provider} onChange={e => setProvider(e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none">
+                <option value="google_search">Google Search (AI)</option>
                 <option value="materialsproject">Materials Project</option>
                 <option value="nist">NIST / JARVIS</option>
                 <option value="aflow">AFLOW</option>
