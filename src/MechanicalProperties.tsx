@@ -263,26 +263,73 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
   }, [fatigueInputs, meanStressModel]);
 
   // --- SUB-MODULE 4: Creep ---
-  const [creepInputs, setCreepInputs] = useState({ e0: 0.01, edot: 0.0005, temp: 600, time: 1000 });
+  const [creepInputs, setCreepInputs] = useState({ 
+    stress: 150, 
+    temp: 600, 
+    time: 10000, 
+    A: 1.5e-10, // Material constant (1/h/MPa^n)
+    n: 4.5, // Stress exponent
+    Q: 280000, // Activation Energy (J/mol)
+    C: 20 // Larson-Miller Constant
+  });
   
   const creepData = useMemo(() => {
-    const { e0, edot, time } = creepInputs;
+    const { stress, temp, time, A, n, Q } = creepInputs;
     const data = [];
+    const R = 8.314; // Gas constant J/(mol*K)
+    const T_K = temp + 273.15;
+    
+    // Norton Power Law for Secondary Creep Rate: edot = A * sigma^n * exp(-Q/RT)
+    const edot = A * Math.pow(stress, n) * Math.exp(-Q / (R * T_K));
+    
+    // Primary Creep Approximation (Transient)
+    // e_primary = e0 * (1 - exp(-k*t))
+    // Let's assume primary strain is roughly 10% of secondary strain at 1000h for visualization
+    const e0 = edot * 500; 
+    
     for (let t = 0; t <= time; t += time / 50) {
-      // Primary (logarithmic), Secondary (linear), Tertiary (exponential)
-      const primary = e0 * (1 - Math.exp(-5 * t / time));
+      // Primary + Secondary
+      const primary = e0 * (1 - Math.exp(-0.005 * t));
       const secondary = edot * t;
-      const tertiary = 0.00001 * Math.exp(5 * t / time);
+      
+      // Tertiary (Exponential rise near rupture) - simplified model
+      // Only show tertiary if strain gets very high (>10%)
+      let tertiary = 0;
+      if (secondary > 0.08) {
+         tertiary = 0.0001 * Math.exp(10 * (secondary - 0.08));
+      }
+
       data.push({ time: t, strain: (primary + secondary + tertiary) * 100 });
     }
-    return data;
+    return { data, rate: edot };
   }, [creepInputs]);
 
-  const lmp = useMemo(() => {
-    // LMP = T(C + log t) / 1000, T in Kelvin
-    const T_K = creepInputs.temp + 273.15;
-    return (T_K * (20 + Math.log10(creepInputs.time)) / 1000).toFixed(2);
-  }, [creepInputs]);
+  const creepResults = useMemo(() => {
+    const { temp, stress, C } = creepInputs;
+    const T_K = temp + 273.15;
+    
+    // Larson-Miller Parameter (LMP) Calculation
+    // LMP = T(C + log tr) / 1000
+    // We need to estimate Rupture Time (tr) first or calculate LMP from Stress?
+    // Usually LMP is a function of Stress. Let's use a simple correlation for a generic alloy (e.g., steel)
+    // LMP = 25 - 0.03 * Stress (Very rough approx for visualization)
+    // Or better: log(tr) = LMP*1000/T - C
+    
+    // Let's use a generic LMP vs Stress correlation: LMP = 22000 - 40 * Stress
+    const LMP_calc = 22000 - 20 * stress; 
+    
+    // Calculate Rupture Time
+    // LMP = T * (C + log10(tr))
+    // log10(tr) = LMP / T - C
+    const log_tr = LMP_calc / T_K - C;
+    const tr = Math.pow(10, log_tr);
+
+    return {
+      rate: (creepData.rate * 100).toExponential(2), // %/h
+      ruptureTime: tr > 1e6 ? '> 1,000,000' : Math.round(tr).toLocaleString(),
+      LMP: (LMP_calc / 1000).toFixed(2)
+    };
+  }, [creepInputs, creepData]);
 
   // --- SUB-MODULE 5: Impact ---
   const [impactLogs, setImpactLogs] = useState([]);
@@ -596,38 +643,67 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-1 space-y-4">
               <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Creep Parameters</h2>
-              {Object.entries({ e0: 'Initial Strain', edot: 'Steady Creep Rate (1/h)', temp: 'Temperature (°C)', time: 'Time Range (h)' }).map(([key, label]) => (
-                <div key={key}>
-                  <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
-                  <input 
-                    type="number" 
-                    step="any"
-                    value={creepInputs[key]} 
-                    onChange={e => setCreepInputs({...creepInputs, [key]: Number(e.target.value)})}
-                    className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
-                  />
-                </div>
-              ))}
               
-              <div className="mt-6 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md">
-                <h3 className="text-sm text-[#94A3B8] mb-2">Larson-Miller Parameter</h3>
-                <div className="flex justify-between items-center">
-                  <span className="text-[#F1F5F9]">LMP (x10³):</span>
-                  <span className="font-bold text-[#4A9EFF]">{lmp}</span>
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-[#4A9EFF]">Test Conditions</h3>
+                <div>
+                  <label className="block text-sm text-[#94A3B8] mb-1">Applied Stress (σ) [MPa]</label>
+                  <input type="number" value={creepInputs.stress} onChange={e => setCreepInputs({...creepInputs, stress: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
                 </div>
-                <p className="text-xs text-[#94A3B8] mt-2">Assuming C = 20</p>
+                <div>
+                  <label className="block text-sm text-[#94A3B8] mb-1">Temperature (T) [°C]</label>
+                  <input type="number" value={creepInputs.temp} onChange={e => setCreepInputs({...creepInputs, temp: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-sm text-[#94A3B8] mb-1">Time Range (t) [h]</label>
+                  <input type="number" value={creepInputs.time} onChange={e => setCreepInputs({...creepInputs, time: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-4 border-t border-[#2D3F50]">
+                <h3 className="text-sm font-medium text-[#4A9EFF]">Material Constants (Norton Law)</h3>
+                <div>
+                  <label className="block text-xs text-[#94A3B8] mb-1">Coeff A (1/h/MPa^n)</label>
+                  <input type="number" step="any" value={creepInputs.A} onChange={e => setCreepInputs({...creepInputs, A: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-[#94A3B8] mb-1">Exponent (n)</label>
+                    <input type="number" step="0.1" value={creepInputs.n} onChange={e => setCreepInputs({...creepInputs, n: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#94A3B8] mb-1">Q (J/mol)</label>
+                    <input type="number" value={creepInputs.Q} onChange={e => setCreepInputs({...creepInputs, Q: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mt-6 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md space-y-2">
+                <h3 className="text-sm text-[#94A3B8] mb-2">Results</h3>
+                <div className="flex justify-between items-center">
+                  <span className="text-[#F1F5F9] text-sm">Creep Rate:</span>
+                  <span className="font-bold text-[#4A9EFF]">{creepResults.rate} %/h</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[#F1F5F9] text-sm">Est. Rupture Time:</span>
+                  <span className="font-bold text-[#F59E0B]">{creepResults.ruptureTime} h</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[#F1F5F9] text-sm">LMP (x10³):</span>
+                  <span className="font-bold text-[#22C55E]">{creepResults.LMP}</span>
+                </div>
               </div>
             </div>
             <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-2 flex flex-col">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-bold text-[#F1F5F9]">Creep Curve</h2>
+                <h2 className="text-lg font-bold text-[#F1F5F9]">Creep Curve (Strain vs Time)</h2>
                 <button onClick={() => exportChart('creep-chart', 'creep-curve')} className="text-[#4A9EFF] hover:text-blue-400 flex items-center gap-2 text-sm">
                   <Download size={16} /> Export PNG
                 </button>
               </div>
               <div id="creep-chart" className="flex-1 min-h-[400px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={creepData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <LineChart data={creepData.data} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
                     <XAxis dataKey="time" type="number" stroke="#94A3B8" label={{ value: 'Time (h)', position: 'bottom', fill: '#94A3B8' }} />
                     <YAxis stroke="#94A3B8" label={{ value: 'Strain (%)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
