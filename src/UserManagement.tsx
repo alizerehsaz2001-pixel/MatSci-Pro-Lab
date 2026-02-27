@@ -55,7 +55,7 @@ const generateMockLogs = () => {
       result: Math.random() > 0.1 ? 'Success' : 'Failed'
     });
   }
-  return logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  return logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 };
 
 const INITIAL_LOGS = generateMockLogs();
@@ -73,7 +73,7 @@ const INITIAL_NOTIFS = [
   { id: 'N4', type: 'Security', message: 'New login from unrecognized device (IP: 203.0.113.42).', time: new Date(Date.now() - 259200000).toISOString(), read: true }
 ];
 
-export default function UserManagement({ currentUser }) {
+export default function UserManagement({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme, onNavigate }) {
   const [activeTab, setActiveTab] = useState(TABS[0].id);
   const [toasts, setToasts] = useState([]);
 

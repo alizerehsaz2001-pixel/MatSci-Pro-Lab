@@ -24,7 +24,7 @@ const STANDARDS = [
 
 const TEST_TYPES = ['Tensile', 'Hardness', 'Impact', 'Fatigue', 'Fracture', 'Creep'];
 
-export default function TestingStandards({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme }) {
+export default function TestingStandards({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme, onNavigate }) {
   const [activeTab, setActiveTab] = useState(TABS[0].id);
   const [toasts, setToasts] = useState([]);
 
@@ -118,7 +118,7 @@ export default function TestingStandards({ materials, setMaterials, testLogs, se
   const getEqStatus = (nextCal) => {
     const today = new Date();
     const next = new Date(nextCal);
-    const diffDays = Math.ceil((next - today) / (1000 * 60 * 60 * 24));
+    const diffDays = Math.ceil((next.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     if (diffDays < 0) return { label: 'Overdue', color: 'text-[#EF4444]', bg: 'bg-[#EF4444]/20' };
     if (diffDays <= 30) return { label: `Due in ${diffDays}d`, color: 'text-[#F59E0B]', bg: 'bg-[#F59E0B]/20' };
     return { label: 'Valid', color: 'text-[#22C55E]', bg: 'bg-[#22C55E]/20' };

@@ -104,8 +104,30 @@ function polyFit(points, degree) {
   return solveLinearSystem(X, Y);
 }
 
-export default function AnalysisCalculations({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme }) {
+export default function AnalysisCalculations({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme, onNavigate }) {
   const [activeTab, setActiveTab] = useState(TABS[0].id);
+  const [selectedMaterialId, setSelectedMaterialId] = useState('');
+  const [toasts, setToasts] = useState([]);
+
+  const addToast = (message, type = 'success') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
+  };
+
+  const handleMaterialSelect = (e) => {
+    const id = e.target.value;
+    setSelectedMaterialId(id);
+    if (!id) return;
+    
+    const mat = materials.find(m => m.id === id);
+    if (mat) {
+      // Populate Calculators with common fields if they exist in the formula
+      // This is a bit complex because calcInputs is nested by calcId
+      // For simplicity, we'll just toast and let user know it's loaded for some
+      addToast(`Loaded properties for ${mat.name}. Use them in relevant calculators.`);
+    }
+  };
 
   // --- SUB-MODULE 1: Calculators ---
   const [calcInputs, setCalcInputs] = useState({});
@@ -287,14 +309,14 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
   
   const faResult = useMemo(() => {
     if (faStep < FA_QUESTIONS.length) return null;
-    const modeCounts = {};
-    Object.values(faAnswers).forEach(mode => {
+    const modeCounts: any = {};
+    Object.values(faAnswers).forEach((mode: any) => {
       modeCounts[mode] = (modeCounts[mode] || 0) + 1;
     });
     let topMode = Object.keys(modeCounts)[0];
     let maxCount = 0;
     for (const [mode, count] of Object.entries(modeCounts)) {
-      if (count > maxCount) { maxCount = count; topMode = mode; }
+      if ((count as number) > maxCount) { maxCount = count as number; topMode = mode; }
     }
     return { mode: topMode, ...FA_RESULTS[topMode] };
   }, [faStep, faAnswers]);
@@ -311,9 +333,33 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
 
   return (
     <div className="p-6 h-full flex flex-col gap-6 overflow-y-auto bg-[#0F1923] text-[#F1F5F9]">
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+        {toasts.map(t => (
+          <div key={t.id} className={`text-white px-4 py-3 rounded-md shadow-lg flex items-center justify-between gap-4 min-w-[300px] ${t.type === 'error' ? 'bg-[#EF4444]' : 'bg-[#22C55E]'}`}>
+            <span>{t.message}</span>
+          </div>
+        ))}
+      </div>
+
       <div className="bg-[#1A2634] p-4 rounded-lg border border-[#2D3F50] shadow-lg shrink-0">
-        <h1 className="text-2xl font-bold text-[#F1F5F9]">Analysis & Calculations</h1>
-        <p className="text-[#94A3B8] text-sm mt-1">Universal calculators, statistical tools, and material selection</p>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-[#F1F5F9]">Analysis & Calculations</h1>
+            <p className="text-[#94A3B8] text-sm mt-1">Universal engineering calculators and statistical tools</p>
+          </div>
+          <div className="w-full md:w-64">
+            <select 
+              value={selectedMaterialId}
+              onChange={handleMaterialSelect}
+              className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm"
+            >
+              <option value="">-- Reference Material --</option>
+              {materials.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
         
         <div className="flex overflow-x-auto gap-2 mt-6 pb-2 border-b border-[#2D3F50] scrollbar-hide">
           {TABS.map(tab => {

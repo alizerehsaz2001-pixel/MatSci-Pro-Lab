@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Search, Plus, Download, Upload, SlidersHorizontal, Trash2, Edit, X, AlertTriangle, ChevronLeft, ChevronRight, BarChart2, CheckSquare, Square, Database } from 'lucide-react';
+import { Search, Plus, Download, Upload, SlidersHorizontal, Trash2, Edit, X, AlertTriangle, ChevronLeft, ChevronRight, BarChart2, CheckSquare, Square, Database, Activity } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const CATEGORIES = ["Metals & Alloys", "Polymers", "Ceramics", "Composites", "Semiconductors", "Biomaterials"];
@@ -39,7 +39,7 @@ const Toast = ({ message, type, onClose }) => {
   );
 };
 
-export default function MaterialsDatabase({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme }) {
+export default function MaterialsDatabase({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme, onNavigate }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -191,13 +191,14 @@ export default function MaterialsDatabase({ materials, setMaterials, testLogs, s
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const text = event.target.result;
+        const text = event.target?.result;
+        if (typeof text !== 'string') return;
         const lines = text.split('\n').filter(l => l.trim());
         if (lines.length < 2) throw new Error('Invalid CSV');
         const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
         const newMaterials = lines.slice(1).map(line => {
           const values = line.split(',').map(v => v.replace(/"/g, '').trim());
-          const obj = {};
+          const obj: any = {};
           headers.forEach((h, i) => {
             obj[h] = isNaN(Number(values[i])) ? values[i] : Number(values[i]);
           });
@@ -351,8 +352,15 @@ export default function MaterialsDatabase({ materials, setMaterials, testLogs, s
                     <td className="p-3"><SourceBadge source={m.source} /></td>
                     <td className="p-3">
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => openModal(m)} className="text-[#4A9EFF] hover:text-blue-400"><Edit size={16} /></button>
-                        <button onClick={() => setDeleteConfirmId(m.id)} className="text-[#EF4444] hover:text-red-400"><Trash2 size={16} /></button>
+                        <button 
+                          onClick={() => onNavigate('Analysis & Calculations')} 
+                          className="text-[#F59E0B] hover:text-amber-400"
+                          title="Analyze Material"
+                        >
+                          <Activity size={16} />
+                        </button>
+                        <button onClick={() => openModal(m)} className="text-[#4A9EFF] hover:text-blue-400" title="Edit"><Edit size={16} /></button>
+                        <button onClick={() => setDeleteConfirmId(m.id)} className="text-[#EF4444] hover:text-red-400" title="Delete"><Trash2 size={16} /></button>
                       </div>
                     </td>
                   </tr>

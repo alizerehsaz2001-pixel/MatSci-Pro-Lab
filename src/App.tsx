@@ -84,6 +84,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         )}
         {currentModule === 'Materials Database' && (
@@ -95,6 +96,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         )}
         {currentModule === 'Mechanical Properties' && (
@@ -106,6 +108,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         )}
         {currentModule === 'Physical Properties' && (
@@ -117,6 +120,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         )}
         {currentModule === 'Analysis & Calculations' && (
@@ -128,6 +132,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         )}
         {currentModule === 'Testing & Standards' && (
@@ -139,6 +144,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         )}
         {currentModule === 'Reports' && (
@@ -150,6 +156,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         )}
         {currentModule === 'User Management' && (
@@ -161,6 +168,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         )}
         {currentModule === 'Settings' && (
@@ -172,6 +180,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         )}
         {currentModule !== 'Dashboard' && currentModule !== 'Materials Database' && currentModule !== 'Mechanical Properties' && currentModule !== 'Physical Properties' && currentModule !== 'Analysis & Calculations' && currentModule !== 'Testing & Standards' && currentModule !== 'Reports' && currentModule !== 'User Management' && currentModule !== 'Settings' && (

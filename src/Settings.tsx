@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Settings as SettingsIcon, Ruler, Palette, Database, Building2, Bell, Save, RotateCcw, Download, Upload, Trash2, AlertTriangle, CheckCircle, RefreshCw, UploadCloud, MonitorSmartphone } from 'lucide-react';
+import { Settings as SettingsIcon, Ruler, Palette, Database, Building2, Bell, Save, RotateCcw, Download, Upload, Trash2, AlertTriangle, CheckCircle, RefreshCw, UploadCloud, MonitorSmartphone, XCircle } from 'lucide-react';
 
 const TABS = [
   { id: 'Units', icon: Ruler },
@@ -45,7 +45,7 @@ const TRANSLATIONS = {
   zh: { title: '设置与配置', save: '保存更改', preview: '实时预览' }
 };
 
-export default function Settings({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme: globalTheme }) {
+export default function Settings({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme: globalTheme, onNavigate }) {
   const [activeTab, setActiveTab] = useState(TABS[0].id);
   const [toasts, setToasts] = useState([]);
 
@@ -100,7 +100,9 @@ export default function Settings({ materials, setMaterials, testLogs, setTestLog
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const data = JSON.parse(event.target.result);
+        const result = event.target?.result;
+        if (typeof result !== 'string') return;
+        const data = JSON.parse(result);
         if (data.materials) setMaterials(data.materials);
         if (data.testLogs) setTestLogs(data.testLogs);
         addToast('Backup restored successfully');

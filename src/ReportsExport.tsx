@@ -47,7 +47,7 @@ const ALL_PROPS = [
 
 const CHART_COLORS = ['#4A9EFF', '#22C55E', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
-export default function ReportsExport({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme }) {
+export default function ReportsExport({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme, onNavigate }) {
   const displayMaterials = materials.length > 0 ? materials : [];
   const [activeTab, setActiveTab] = useState(TABS[0].id);
   const [toasts, setToasts] = useState([]);

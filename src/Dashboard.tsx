@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend } from 'recharts';
-import { TrendingUp, TrendingDown, Database, Activity, FileText, Search, X, Medal, Clock, Plus, CheckCircle, ChevronRight } from 'lucide-react';
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
+import { TrendingUp, TrendingDown, Database, Activity, FileText, Search, X, Medal, Clock, Plus, CheckCircle, ChevronRight, Zap, FlaskConical, AlertTriangle, ArrowUpRight, ArrowDownRight, MoreHorizontal, Filter } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 const SAMPLE_MATERIALS = [
   { id: '1', name: 'Steel 304', category: 'Metals & Alloys', density: 8.0, yieldStrength: 215, uts: 505, youngsModulus: 193, hardness: 129, meltingPoint: 1400, thermalConductivity: 16.2, electricalResistivity: 7.2e-7, poissonRatio: 0.29, elongation: 70, source: 'nist', createdAt: new Date().toISOString(), notes: 'Common austenitic stainless steel' },
@@ -25,19 +26,19 @@ const SAMPLE_MATERIALS = [
   { id: '20', name: 'Brass (C26000)', category: 'Metals & Alloys', density: 8.53, yieldStrength: 110, uts: 300, youngsModulus: 110, hardness: 55, meltingPoint: 915, thermalConductivity: 120, electricalResistivity: 6.2e-8, poissonRatio: 0.33, elongation: 65, source: 'nist', createdAt: new Date().toISOString(), notes: 'Cartridge brass' }
 ];
 
-const COLORS = ['#4A9EFF', '#22C55E', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
-const RADAR_COLORS = ['#4A9EFF', '#22C55E', '#F59E0B'];
+const COLORS = ['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b'];
+const RADAR_COLORS = ['#06b6d4', '#8b5cf6', '#f59e0b'];
 
 const MOCK_ACTIVITY = [
-  { id: 1, type: 'add', user: 'Sarah J.', text: 'Added new material: Titanium Grade 5', time: '2h ago', icon: Plus, color: 'text-[#22C55E]' },
-  { id: 2, type: 'test', user: 'Mike R.', text: 'Recorded tensile test for Steel 304', time: '4h ago', icon: Activity, color: 'text-[#4A9EFF]' },
-  { id: 3, type: 'report', user: 'Admin', text: 'Generated Q3 Materials Summary', time: '1d ago', icon: FileText, color: 'text-[#F59E0B]' },
-  { id: 4, type: 'update', user: 'Sarah J.', text: 'Updated thermal properties for PEEK', time: '2d ago', icon: CheckCircle, color: 'text-[#8B5CF6]' },
+  { id: 1, type: 'add', user: 'Sarah J.', text: 'Added new material: Titanium Grade 5', time: '2h ago', icon: Plus, color: 'text-emerald-500' },
+  { id: 2, type: 'test', user: 'Mike R.', text: 'Recorded tensile test for Steel 304', time: '4h ago', icon: Activity, color: 'text-blue-500' },
+  { id: 3, type: 'report', user: 'Admin', text: 'Generated Q3 Materials Summary', time: '1d ago', icon: FileText, color: 'text-amber-500' },
+  { id: 4, type: 'update', user: 'Sarah J.', text: 'Updated thermal properties for PEEK', time: '2d ago', icon: CheckCircle, color: 'text-purple-500' },
 ];
 
 export default function Dashboard({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme }) {
   // Use provided materials or fallback to sample data if empty to ensure dashboard is populated
-  const displayMaterials = materials.length > 0 ? materials : [];
+  const displayMaterials = materials.length > 0 ? materials : SAMPLE_MATERIALS;
 
   // --- CARD 1: Overview ---
   const categoryData = useMemo(() => {
@@ -234,42 +235,34 @@ export default function Dashboard({ materials, setMaterials, testLogs, setTestLo
             </div>
           </div>
           <div className="flex-1 min-h-[250px] relative">
-            {displayMaterials.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={categoryData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={80}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {categoryData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip 
-                      contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9', borderRadius: '8px' }}
-                      itemStyle={{ color: '#F1F5F9' }}
-                    />
-                    <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', color: '#94A3B8' }} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none pb-8">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-[#F1F5F9]">{displayMaterials.length}</div>
-                    <div className="text-[10px] text-[#94A3B8] uppercase tracking-wider">Items</div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="absolute inset-0 flex items-center justify-center text-[#94A3B8]">
-                No materials available
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={categoryData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {categoryData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <RechartsTooltip 
+                  contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9', borderRadius: '8px' }}
+                  itemStyle={{ color: '#F1F5F9' }}
+                />
+                <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', color: '#94A3B8' }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none pb-8">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-[#F1F5F9]">{displayMaterials.length}</div>
+                <div className="text-[10px] text-[#94A3B8] uppercase tracking-wider">Items</div>
               </div>
-            )}
+            </div>
           </div>
           <div className="text-xs text-[#94A3B8] text-center mt-2 flex items-center justify-center gap-1">
             <Clock size={12} /> Last updated: Just now
@@ -292,34 +285,26 @@ export default function Dashboard({ materials, setMaterials, testLogs, setTestLo
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#2D3F50]">
-                {heatmapData.materials.length > 0 ? (
-                  heatmapData.materials.map(m => (
-                    <tr key={m.id} className="hover:bg-[#2D3F50]/50 transition-colors">
-                      <td className="p-3 font-medium text-[#F1F5F9]">{m.name}</td>
-                      {heatmapProps.map(prop => {
-                        const val = m[prop];
-                        const style = getHeatmapColor(val, heatmapData.ranges[prop].min, heatmapData.ranges[prop].max);
-                        return (
-                          <td key={prop} className="p-1">
-                            <div 
-                              className="w-full h-full py-2 px-1 rounded text-center font-medium transition-colors"
-                              style={{ backgroundColor: style.bg, color: style.text }}
-                              title={`${val}`}
-                            >
-                              {val !== undefined && val !== null ? val : '-'}
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={6} className="p-8 text-center text-[#94A3B8]">
-                      No materials available for heatmap
-                    </td>
+                {heatmapData.materials.map(m => (
+                  <tr key={m.id} className="hover:bg-[#2D3F50]/50 transition-colors">
+                    <td className="p-3 font-medium text-[#F1F5F9]">{m.name}</td>
+                    {heatmapProps.map(prop => {
+                      const val = m[prop];
+                      const style = getHeatmapColor(val, heatmapData.ranges[prop].min, heatmapData.ranges[prop].max);
+                      return (
+                        <td key={prop} className="p-1">
+                          <div 
+                            className="w-full h-full py-2 px-1 rounded text-center font-medium transition-colors"
+                            style={{ backgroundColor: style.bg, color: style.text }}
+                            title={`${val}`}
+                          >
+                            {val !== undefined && val !== null ? val : '-'}
+                          </div>
+                        </td>
+                      );
+                    })}
                   </tr>
-                )}
+                ))}
               </tbody>
             </table>
           </div>
@@ -412,36 +397,30 @@ export default function Dashboard({ materials, setMaterials, testLogs, setTestLo
           </div>
           
           <div className="space-y-4">
-            {leaderboardData.length > 0 ? (
-              leaderboardData.map((m, idx) => {
-                const val = m[leaderboardProp];
-                const percentage = (val / maxLeaderboardVal) * 100;
-                return (
-                  <div key={m.id} className="group">
-                    <div className="flex justify-between items-end mb-1">
-                      <div className="flex items-center gap-2">
-                        {idx === 0 && <Medal size={16} className="text-[#F59E0B]" />}
-                        {idx === 1 && <Medal size={16} className="text-[#94A3B8]" />}
-                        {idx === 2 && <Medal size={16} className="text-[#B45309]" />}
-                        {idx > 2 && <span className="w-4 text-center text-xs text-[#94A3B8]">{idx + 1}</span>}
-                        <span className="text-sm font-medium text-[#F1F5F9]">{m.name}</span>
-                      </div>
-                      <span className="text-sm font-bold text-[#4A9EFF]">{val}</span>
+            {leaderboardData.map((m, idx) => {
+              const val = m[leaderboardProp];
+              const percentage = (val / maxLeaderboardVal) * 100;
+              return (
+                <div key={m.id} className="group">
+                  <div className="flex justify-between items-end mb-1">
+                    <div className="flex items-center gap-2">
+                      {idx === 0 && <Medal size={16} className="text-[#F59E0B]" />}
+                      {idx === 1 && <Medal size={16} className="text-[#94A3B8]" />}
+                      {idx === 2 && <Medal size={16} className="text-[#B45309]" />}
+                      {idx > 2 && <span className="w-4 text-center text-xs text-[#94A3B8]">{idx + 1}</span>}
+                      <span className="text-sm font-medium text-[#F1F5F9]">{m.name}</span>
                     </div>
-                    <div className="h-2 w-full bg-[#0F1923] rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full transition-all duration-1000 ease-out ${idx === 0 ? 'bg-[#4A9EFF]' : 'bg-[#2D3F50] group-hover:bg-[#4A9EFF]/50'}`}
-                        style={{ width: `${percentage}%` }}
-                      ></div>
-                    </div>
+                    <span className="text-sm font-bold text-[#4A9EFF]">{val}</span>
                   </div>
-                );
-              })
-            ) : (
-              <div className="text-center text-[#94A3B8] py-8">
-                No materials available
-              </div>
-            )}
+                  <div className="h-2 w-full bg-[#0F1923] rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-1000 ease-out ${idx === 0 ? 'bg-[#4A9EFF]' : 'bg-[#2D3F50] group-hover:bg-[#4A9EFF]/50'}`}
+                      style={{ width: `${percentage}%` }}
+                    ></div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 

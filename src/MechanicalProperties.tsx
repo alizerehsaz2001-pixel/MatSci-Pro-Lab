@@ -14,49 +14,11 @@ const TABS = [
 export default function MechanicalProperties({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme }) {
   const [activeTab, setActiveTab] = useState(TABS[0]);
   const [toasts, setToasts] = useState([]);
-  const [selectedMaterialId, setSelectedMaterialId] = useState('');
 
   const addToast = (message, type = 'success') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
-  };
-
-  const handleMaterialSelect = (e) => {
-    const id = e.target.value;
-    setSelectedMaterialId(id);
-    if (!id) return;
-    
-    const mat = materials.find(m => m.id === id);
-    if (mat) {
-      setSsInputs(prev => ({
-        ...prev,
-        E: mat.youngsModulus || prev.E,
-        Sy: mat.yieldStrength || prev.Sy,
-        UTS: mat.uts || prev.UTS,
-        ef: mat.elongation || prev.ef,
-        nu: mat.poissonRatio || prev.nu
-      }));
-      
-      if (mat.hardness) {
-        setHardInput({ value: mat.hardness, scale: 'HV' });
-      }
-      
-      setFatigueInputs(prev => ({
-        ...prev,
-        UTS: mat.uts || prev.UTS,
-        Se: (mat.uts ? mat.uts * 0.5 : prev.Se)
-      }));
-      
-      setCalcInput(prev => ({
-        ...prev,
-        E: mat.youngsModulus || prev.E,
-        nu: mat.poissonRatio || prev.nu,
-        Sy: mat.yieldStrength || prev.Sy
-      }));
-      
-      addToast(`Loaded properties for ${mat.name}`);
-    }
   };
 
   const exportChart = (chartId, filename) => {
@@ -85,50 +47,85 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
   };
 
   // --- SUB-MODULE 1: Stress-Strain ---
-  const [ssInputs, setSsInputs] = useState({ E: 200, Sy: 250, UTS: 400, ef: 20, nu: 0.3 });
+  const [ssInputs, setSsInputs] = useState({ E: 200, Sy: 250, UTS: 400, eu: 10, ef: 20, nu: 0.3 });
   const [ssType, setSsType] = useState('engineering'); // 'engineering' or 'true'
 
   const ssData = useMemo(() => {
-    const { E, Sy, UTS, ef } = ssInputs;
-    if (E <= 0 || ef <= 0) return [];
+    const { E, Sy, UTS, eu, ef } = ssInputs;
     const data = [];
-    const yieldStrain = Sy / (E * 1000); // E in GPa, Sy in MPa
-    const fractureStrain = ef / 100;
+    const yieldStrainAbs = Sy / (E * 1000); // E in GPa, Sy in MPa
+    const yieldStrain = yieldStrainAbs * 100; // %
     
+    // Validate inputs to prevent chart errors
+    const safeEu = Math.max(eu, yieldStrain + 0.1);
+    const safeEf = Math.max(ef, safeEu + 0.1);
+
     // Generate points
-    for (let i = 0; i <= 100; i++) {
-      const t = i / 100;
-      let strain = t * fractureStrain;
+    const steps = 100;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      let strain = t * safeEf; // %
+      let strainAbs = strain / 100;
       let stress = 0;
       
-      if (strain <= yieldStrain) {
-        stress = strain * (E * 1000);
+      if (strainAbs <= yieldStrainAbs) {
+        // Elastic Region: Hooke's Law
+        stress = strainAbs * (E * 1000);
+      } else if (strain <= safeEu) {
+        // Plastic Region (Yield to UTS): Parabolic fit with vertex at (eu, UTS)
+        // Sigma = UTS - A * (eu - e)^2
+        // Match at yield: Sy = UTS - A * (eu - ey)^2  => A = (UTS - Sy) / (eu - ey)^2
+        const A = (UTS - Sy) / Math.pow(safeEu - yieldStrain, 2);
+        stress = UTS - A * Math.pow(safeEu - strain, 2);
       } else {
-        // Simple parabolic hardening to UTS, then softening to fracture
-        const plasticStrain = strain - yieldStrain;
-        const maxPlasticStrain = (fractureStrain - yieldStrain) * 0.6; // UTS occurs at 60% of plastic region
-        
-        if (strain <= yieldStrain + maxPlasticStrain) {
-          const ratio = plasticStrain / maxPlasticStrain;
-          stress = Sy + (UTS - Sy) * (1 - Math.pow(1 - ratio, 2));
-        } else {
-          const ratio = (strain - (yieldStrain + maxPlasticStrain)) / (fractureStrain - (yieldStrain + maxPlasticStrain));
-          stress = UTS - (UTS * 0.15) * Math.pow(ratio, 2); // 15% drop at fracture
-        }
+        // Necking Region (UTS to Fracture): Parabolic drop
+        // Assume stress drops to fracture stress. Let's estimate fracture stress or use a fixed drop.
+        // Using the previous logic of ~15% drop, or just a smooth continuation.
+        // Let's model a simple drop: Sigma = UTS - B * (e - eu)^2
+        // Let's assume fracture stress is roughly (Sy + UTS)/2 for ductility, or just 0.85 * UTS as before.
+        const fractureStress = UTS * 0.85; 
+        const B = (UTS - fractureStress) / Math.pow(safeEf - safeEu, 2);
+        stress = UTS - B * Math.pow(strain - safeEu, 2);
       }
 
-      const trueStrain = Math.log(1 + strain);
-      const trueStress = stress * (1 + strain);
+      const trueStrain = Math.log(1 + strainAbs);
+      const trueStress = stress * (1 + strainAbs);
 
       data.push({
-        strain: strain * 100, // %
+        strain: strain,
         stress: stress,
-        trueStrain: trueStrain * 100, // %
+        trueStrain: trueStrain * 100,
         trueStress: trueStress
       });
     }
     return data;
   }, [ssInputs]);
+
+  const ssResults = useMemo(() => {
+    const { E, Sy, UTS, eu, ef } = ssInputs;
+    const yieldStrainAbs = Sy / (E * 1000);
+    
+    // Modulus of Resilience: Area under elastic region (1/2 * stress * strain)
+    // Units: MPa * (mm/mm) = MJ/m^3
+    const Ur = 0.5 * Sy * yieldStrainAbs;
+
+    // Modulus of Toughness: Area under the entire curve
+    // Approximate using trapezoidal rule on the generated data
+    let toughness = 0;
+    for (let i = 0; i < ssData.length - 1; i++) {
+      const p1 = ssData[i];
+      const p2 = ssData[i+1];
+      const avgStress = (p1.stress + p2.stress) / 2;
+      const dStrain = (p2.strain - p1.strain) / 100; // Convert % back to absolute
+      toughness += avgStress * dStrain;
+    }
+
+    return {
+      Ur: Ur.toFixed(4),
+      Toughness: toughness.toFixed(2),
+      YieldStrain: (yieldStrainAbs * 100).toFixed(3)
+    };
+  }, [ssInputs, ssData]);
 
   // --- SUB-MODULE 2: Hardness ---
   const [hardInput, setHardInput] = useState({ value: 200, scale: 'HV' });
@@ -162,7 +159,6 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
   
   const fatigueData = useMemo(() => {
     const { UTS, Se, b } = fatigueInputs;
-    if (Se <= 0 || UTS <= 0) return [];
     const data = [];
     const a = Math.pow(0.9 * UTS, 2) / Se; // Basquin coefficient approx
     
@@ -179,7 +175,6 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
 
   const fatigueResult = useMemo(() => {
     const { UTS, Se, b, applied } = fatigueInputs;
-    if (applied <= 0 || Se <= 0 || UTS <= 0 || b === 0) return { cycles: 'N/A', safety: 0 };
     if (applied <= Se) return { cycles: 'Infinite', safety: Se / applied };
     const a = Math.pow(0.9 * UTS, 2) / Se;
     const N = Math.pow(applied / a, 1 / b);
@@ -191,7 +186,6 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
   
   const creepData = useMemo(() => {
     const { e0, edot, time } = creepInputs;
-    if (time <= 0) return [];
     const data = [];
     for (let t = 0; t <= time; t += time / 50) {
       // Primary (logarithmic), Secondary (linear), Tertiary (exponential)
@@ -204,7 +198,6 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
   }, [creepInputs]);
 
   const lmp = useMemo(() => {
-    if (creepInputs.time <= 0) return 'N/A';
     // LMP = T(C + log t) / 1000, T in Kelvin
     const T_K = creepInputs.temp + 273.15;
     return (T_K * (20 + Math.log10(creepInputs.time)) / 1000).toFixed(2);
@@ -221,7 +214,6 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
 
   const kicResult = useMemo(() => {
     const { load, thickness, width, crack } = kicInput;
-    if (thickness <= 0 || width <= 0) return 'Invalid Dimensions';
     // Simplified KIC for compact tension: K = (P / (B * W^0.5)) * f(a/W)
     const aW = crack / width;
     if (aW < 0.2 || aW > 0.8) return 'Invalid a/W';
@@ -236,9 +228,9 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
   const calcResults = useMemo(() => {
     const { E, nu, Sy, stress, Kt } = calcInput;
     return {
-      G: (1 + nu) === 0 ? 'N/A' : (E / (2 * (1 + nu))).toFixed(2),
-      K: (1 - 2 * nu) === 0 ? 'N/A' : (E / (3 * (1 - 2 * nu))).toFixed(2),
-      SF: stress <= 0 ? 'Infinite' : (Sy / stress).toFixed(2),
+      G: (E / (2 * (1 + nu))).toFixed(2),
+      K: (E / (3 * (1 - 2 * nu))).toFixed(2),
+      SF: (Sy / stress).toFixed(2),
       MaxStress: (stress * Kt).toFixed(2)
     };
   }, [calcInput]);
@@ -255,24 +247,8 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
       </div>
 
       <div className="bg-[#1A2634] p-4 rounded-lg border border-[#2D3F50] shadow-lg">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-[#F1F5F9]">Mechanical Properties Analysis</h1>
-            <p className="text-[#94A3B8] text-sm mt-1">Advanced calculators and visualizations for materials engineering</p>
-          </div>
-          <div className="w-full md:w-64">
-            <select 
-              value={selectedMaterialId}
-              onChange={handleMaterialSelect}
-              className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm"
-            >
-              <option value="">-- Load from Database --</option>
-              {materials.map(m => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <h1 className="text-2xl font-bold text-[#F1F5F9]">Mechanical Properties Analysis</h1>
+        <p className="text-[#94A3B8] text-sm mt-1">Advanced calculators and visualizations for materials engineering</p>
         
         <div className="flex overflow-x-auto gap-2 mt-6 pb-2 border-b border-[#2D3F50] scrollbar-hide">
           {TABS.map(tab => (
@@ -293,19 +269,34 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-1 space-y-4">
               <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Material Parameters</h2>
-              {Object.entries({ E: 'Young\'s Modulus (GPa)', Sy: 'Yield Strength (MPa)', UTS: 'Ultimate Tensile Strength (MPa)', ef: 'Fracture Strain (%)', nu: 'Poisson\'s Ratio' }).map(([key, label]) => (
+              {Object.entries({ E: 'Young\'s Modulus (GPa)', Sy: 'Yield Strength (MPa)', UTS: 'Ultimate Tensile Strength (MPa)', eu: 'Uniform Elongation (%)', ef: 'Fracture Strain (%)', nu: 'Poisson\'s Ratio' }).map(([key, label]) => (
                 <div key={key}>
                   <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
                   <input 
                     type="number" 
-                    min={key === 'nu' ? undefined : "0"}
-                    step="any"
                     value={ssInputs[key]} 
                     onChange={e => setSsInputs({...ssInputs, [key]: Number(e.target.value)})}
                     className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
                   />
                 </div>
               ))}
+              
+              <div className="mt-6 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md space-y-2">
+                <h3 className="text-sm text-[#94A3B8] font-medium border-b border-[#2D3F50] pb-1 mb-2">Calculated Properties</h3>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-[#F1F5F9]">Yield Strain:</span>
+                  <span className="font-mono text-[#4A9EFF]">{ssResults.YieldStrain}%</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-[#F1F5F9]">Modulus of Resilience:</span>
+                  <span className="font-mono text-[#4A9EFF]">{ssResults.Ur} MJ/m³</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-[#F1F5F9]">Modulus of Toughness:</span>
+                  <span className="font-mono text-[#4A9EFF]">{ssResults.Toughness} MJ/m³</span>
+                </div>
+              </div>
+
               <div className="pt-4 flex gap-2">
                 <button onClick={() => setSsType('engineering')} className={`flex-1 py-2 rounded-md text-sm transition-colors ${ssType === 'engineering' ? 'bg-[#4A9EFF] text-white' : 'bg-[#0F1923] text-[#94A3B8] border border-[#2D3F50]'}`}>Engineering</button>
                 <button onClick={() => setSsType('true')} className={`flex-1 py-2 rounded-md text-sm transition-colors ${ssType === 'true' ? 'bg-[#4A9EFF] text-white' : 'bg-[#0F1923] text-[#94A3B8] border border-[#2D3F50]'}`}>True</button>
@@ -320,13 +311,34 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
               </div>
               <div id="ss-chart" className="flex-1 min-h-[400px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={ssData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <LineChart data={ssData} margin={{ top: 30, right: 30, left: 60, bottom: 40 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                    <XAxis dataKey={ssType === 'engineering' ? 'strain' : 'trueStrain'} type="number" stroke="#94A3B8" label={{ value: 'Strain (%)', position: 'bottom', fill: '#94A3B8' }} />
-                    <YAxis stroke="#94A3B8" label={{ value: 'Stress (MPa)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
+                    <XAxis dataKey={ssType === 'engineering' ? 'strain' : 'trueStrain'} type="number" stroke="#94A3B8" label={{ value: 'Strain (%)', position: 'bottom', offset: 0, fill: '#94A3B8' }} />
+                    <YAxis stroke="#94A3B8" label={{ value: 'Stress (MPa)', angle: -90, position: 'insideLeft', offset: -10, fill: '#94A3B8' }} />
                     <Tooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} formatter={(value) => value.toFixed(2)} />
-                    <Legend />
+                    <Legend verticalAlign="top" height={36} />
                     <Line type="monotone" dataKey={ssType === 'engineering' ? 'stress' : 'trueStress'} name={`${ssType === 'engineering' ? 'Eng.' : 'True'} Stress`} stroke="#4A9EFF" strokeWidth={3} dot={false} />
+                    
+                    {/* Reference Dots */}
+                    {ssType === 'engineering' ? (
+                      <>
+                        <ReferenceDot x={Number(ssResults.YieldStrain)} y={ssInputs.Sy} r={5} fill="#F59E0B" stroke="none" label={{ value: 'Yield', position: 'top', fill: '#F59E0B', fontSize: 12 }} />
+                        <ReferenceDot x={ssInputs.eu} y={ssInputs.UTS} r={5} fill="#EF4444" stroke="none" label={{ value: 'UTS', position: 'top', fill: '#EF4444', fontSize: 12 }} />
+                      </>
+                    ) : (
+                      <>
+                        <ReferenceDot 
+                          x={Math.log(1 + Number(ssResults.YieldStrain)/100) * 100} 
+                          y={ssInputs.Sy * (1 + Number(ssResults.YieldStrain)/100)} 
+                          r={5} fill="#F59E0B" stroke="none" label={{ value: 'Yield', position: 'top', fill: '#F59E0B', fontSize: 12 }} 
+                        />
+                        <ReferenceDot 
+                          x={Math.log(1 + ssInputs.eu/100) * 100} 
+                          y={ssInputs.UTS * (1 + ssInputs.eu/100)} 
+                          r={5} fill="#EF4444" stroke="none" label={{ value: 'UTS', position: 'top', fill: '#EF4444', fontSize: 12 }} 
+                        />
+                      </>
+                    )}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -344,8 +356,6 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                 <label className="block text-sm text-[#94A3B8] mb-1">Value</label>
                 <input 
                   type="number" 
-                  min="0"
-                  step="any"
                   value={hardInput.value} 
                   onChange={e => setHardInput({...hardInput, value: Number(e.target.value)})}
                   className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-lg" 
@@ -391,7 +401,6 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                   <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
                   <input 
                     type="number" 
-                    min={key === 'b' ? undefined : "0"}
                     step="any"
                     value={fatigueInputs[key]} 
                     onChange={e => setFatigueInputs({...fatigueInputs, [key]: Number(e.target.value)})}
@@ -446,7 +455,6 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                   <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
                   <input 
                     type="number" 
-                    min={key === 'temp' ? undefined : "0"}
                     step="any"
                     value={creepInputs[key]} 
                     onChange={e => setCreepInputs({...creepInputs, [key]: Number(e.target.value)})}
@@ -560,7 +568,6 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                     <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
                     <input 
                       type="number" 
-                      min="0"
                       step="any"
                       value={kicInput[key]} 
                       onChange={e => setKicInput({...kicInput, [key]: Number(e.target.value)})}
@@ -594,7 +601,6 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                     <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
                     <input 
                       type="number" 
-                      min={key === 'nu' ? undefined : "0"}
                       step="any"
                       value={calcInput[key]} 
                       onChange={e => setCalcInput({...calcInput, [key]: Number(e.target.value)})}

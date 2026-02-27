@@ -10,7 +10,7 @@ const TABS = [
   { id: 'Crystal', icon: Box }
 ];
 
-export default function PhysicalProperties({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme }) {
+export default function PhysicalProperties({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme, onNavigate }) {
   const [activeTab, setActiveTab] = useState(TABS[0].id);
   const [selectedMaterialId, setSelectedMaterialId] = useState('');
   const [toasts, setToasts] = useState([]);
