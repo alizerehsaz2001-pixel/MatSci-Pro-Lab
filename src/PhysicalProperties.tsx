@@ -10,6 +10,16 @@ const TABS = [
   { id: 'Crystal', icon: Box }
 ];
 
+const CRYSTAL_PRESETS = {
+  'Copper (Cu)': { sys: 'FCC', a: 3.615, b: 3.615, c: 3.615, alpha: 90, beta: 90, gamma: 90, m: 63.55 },
+  'Aluminum (Al)': { sys: 'FCC', a: 4.05, b: 4.05, c: 4.05, alpha: 90, beta: 90, gamma: 90, m: 26.98 },
+  'Iron (α-Fe)': { sys: 'BCC', a: 2.866, b: 2.866, c: 2.866, alpha: 90, beta: 90, gamma: 90, m: 55.85 },
+  'Silicon (Si)': { sys: 'DC', a: 5.431, b: 5.431, c: 5.431, alpha: 90, beta: 90, gamma: 90, m: 28.09 },
+  'Zinc (Zn)': { sys: 'HCP', a: 2.665, b: 2.665, c: 4.947, alpha: 90, beta: 90, gamma: 120, m: 65.38 },
+  'Gold (Au)': { sys: 'FCC', a: 4.078, b: 4.078, c: 4.078, alpha: 90, beta: 90, gamma: 90, m: 196.97 },
+  'Silver (Ag)': { sys: 'FCC', a: 4.085, b: 4.085, c: 4.085, alpha: 90, beta: 90, gamma: 90, m: 107.87 }
+};
+
 export default function PhysicalProperties({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme }) {
   const [activeTab, setActiveTab] = useState(TABS[0].id);
 
@@ -354,12 +364,10 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
 
   // --- SUB-MODULE 5: Crystal ---
   const [crystInputs, setCrystInputs] = useState({ 
-    sys: 'FCC', 
-    a: 3.61, b: 3.61, c: 3.61, 
-    alpha: 90, beta: 90, gamma: 90, 
-    m: 63.55, // Atomic Mass (g/mol)
+    ...CRYSTAL_PRESETS['Copper (Cu)'],
     lambda: 1.5406 // X-ray wavelength (Angstrom)
   });
+  const [selectedCrystPreset, setSelectedCrystPreset] = useState('Copper (Cu)');
   
   const crystAnalysis = useMemo(() => {
     const { sys, a, b, c, alpha, beta, gamma, m, lambda } = crystInputs;
@@ -385,8 +393,14 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
     else if (sys === 'FCC') { n = 4; apf = 0.74; }
     else if (sys === 'HCP') { 
         n = 6; apf = 0.74; 
-        // HCP Volume is usually 3*sqrt(3)*a^2*c / 2. 
-        // Our general formula works if we set gamma=120, a=b.
+        // HCP: The input 'a' and 'c' usually define the primitive cell vectors?
+        // No, typically 'a' is the basal side length, 'c' is the height.
+        // The general formula with gamma=120 gives the volume of the primitive rhombic prism (1/3 of hexagon).
+        // But n=6 corresponds to the full hexagonal prism.
+        // So we must multiply V by 3 if we assume the user wants the "Unit Cell" to be the hexagon.
+        // However, standard lattice parameters a,c define the primitive cell.
+        // Let's assume for density calc we use the full hexagon (n=6) and thus V_hex = 3 * V_prim.
+        V = V * 3;
     }
     else if (sys === 'DC') { n = 8; apf = 0.34; }
     else { n = 1; apf = 0; } // General case
@@ -878,9 +892,35 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-1 space-y-4">
             <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Lattice Parameters</h2>
+            
+            <div className="mb-4">
+              <label className="block text-sm text-[#94A3B8] mb-1">Material Preset</label>
+              <select 
+                value={selectedCrystPreset} 
+                onChange={(e) => {
+                  const preset = e.target.value;
+                  setSelectedCrystPreset(preset);
+                  if (CRYSTAL_PRESETS[preset]) {
+                    setCrystInputs(prev => ({ ...prev, ...CRYSTAL_PRESETS[preset] }));
+                  }
+                }}
+                className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none"
+              >
+                {Object.keys(CRYSTAL_PRESETS).map(key => <option key={key} value={key}>{key}</option>)}
+                <option value="Custom">Custom</option>
+              </select>
+            </div>
+
             <div>
               <label className="block text-sm text-[#94A3B8] mb-1">Crystal System</label>
-              <select value={crystInputs.sys} onChange={e => setCrystInputs({...crystInputs, sys: e.target.value})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none">
+              <select 
+                value={crystInputs.sys} 
+                onChange={e => {
+                  setCrystInputs({...crystInputs, sys: e.target.value});
+                  setSelectedCrystPreset('Custom');
+                }}
+                className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none"
+              >
                 {['SC', 'BCC', 'FCC', 'HCP', 'DC'].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
@@ -888,14 +928,32 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
               {Object.entries({ a: 'a (Å)', b: 'b (Å)', c: 'c (Å)', alpha: 'α (°)', beta: 'β (°)', gamma: 'γ (°)' }).map(([key, label]) => (
                 <div key={key}>
                   <label className="block text-xs text-[#94A3B8] mb-1">{label}</label>
-                  <input type="number" step="any" value={crystInputs[key]} onChange={e => setCrystInputs({...crystInputs, [key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
+                  <input 
+                    type="number" 
+                    step="any" 
+                    value={crystInputs[key]} 
+                    onChange={e => {
+                      setCrystInputs({...crystInputs, [key]: Number(e.target.value)});
+                      setSelectedCrystPreset('Custom');
+                    }}
+                    className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" 
+                  />
                 </div>
               ))}
             </div>
             <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-[#94A3B8] mb-1">Atomic Mass (g/mol)</label>
-                  <input type="number" step="any" value={crystInputs.m} onChange={e => setCrystInputs({...crystInputs, m: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                  <input 
+                    type="number" 
+                    step="any" 
+                    value={crystInputs.m} 
+                    onChange={e => {
+                      setCrystInputs({...crystInputs, m: Number(e.target.value)});
+                      setSelectedCrystPreset('Custom');
+                    }}
+                    className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-[#94A3B8] mb-1">X-ray λ (Å)</label>
