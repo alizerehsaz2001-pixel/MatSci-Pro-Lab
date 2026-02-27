@@ -177,7 +177,7 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
   }, [elecInputs]);
 
   // --- SUB-MODULE 3: Magnetic ---
-  const [magInputs, setMagInputs] = useState({ ur: 1.00001, ms: 0, hc: 0, br: 0 });
+  const [magInputs, setMagInputs] = useState({ ur: 1.00001, ms: 0, hc: 0, br: 0, tc: 0 });
   
   const magClass = useMemo(() => {
     const { ur, ms, hc } = magInputs;
@@ -188,17 +188,78 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
     return { label: 'Unknown', color: 'bg-[#2D3F50]' };
   }, [magInputs]);
 
+  const magAnalysis = useMemo(() => {
+    const { ur, ms, hc, br } = magInputs;
+    const mu0 = 1.2566e-6; // T·m/A
+
+    // Saturation Induction Bs = mu0 * Ms (approx)
+    const Bs = mu0 * ms;
+
+    // Absolute Permeability mu = ur * mu0
+    const mu = ur * mu0;
+
+    // Energy Product BHmax (Approximate)
+    // Max product in 2nd quadrant. simplified as (Br * Hc) / 4 for linear demag curve
+    // or more accurately finding max(B*H) on the curve.
+    // Let's use a simple estimation for display:
+    const BHmax = (br * hc) / 4; // J/m^3
+
+    return { Bs, mu, BHmax };
+  }, [magInputs]);
+
   const hysteresisData = useMemo(() => {
     const { ms, hc, br } = magInputs;
     if (hc === 0 || ms === 0) return [];
+    
     const data = [];
-    // Approximation of B-H curve
-    for (let h = -hc * 1.5; h <= hc * 1.5; h += hc / 10) {
-      // Ascending branch
-      const bAsc = ms * Math.tanh((h - hc/2) / (hc/2)) + (br/2);
-      // Descending branch
-      const bDesc = ms * Math.tanh((h + hc/2) / (hc/2)) - (br/2);
-      data.push({ h, bAsc: Math.max(-ms, Math.min(ms, bAsc)), bDesc: Math.max(-ms, Math.min(ms, bDesc)) });
+    const steps = 50;
+    const maxH = hc * 2;
+    const stepSize = (maxH * 2) / steps;
+
+    // Simple phenomenological model
+    // We want loop to pass through (Hc, 0) and (0, Br)
+    // M(H) = Ms * tanh( alpha * (H +/- Hc) )
+    // At H=0, M = Br/mu0 (approx). 
+    // Br/mu0 = Ms * tanh( alpha * Hc ) => alpha = atanh( Br/(mu0*Ms) ) / Hc
+    
+    const mu0 = 1.2566e-6;
+    let alpha = 0;
+    // Guard against physical impossibility Br > Bs
+    const Bs = mu0 * ms;
+    if (br < Bs * 0.99) {
+        try {
+            alpha = Math.atanh(br / Bs) / hc;
+        } catch (e) {
+            alpha = 1 / hc; // Fallback
+        }
+    } else {
+        alpha = 5 / hc; // Steep square loop
+    }
+
+    for (let h = -maxH; h <= maxH; h += stepSize) {
+      // Ascending branch (lower curve)
+      // Shifted right by Hc? No, ascending from -Hmax goes through +Hc
+      // M_asc = Ms * tanh( alpha * (H - Hc) )
+      const M_asc = ms * Math.tanh(alpha * (h - hc));
+      const B_asc = mu0 * (h + M_asc);
+
+      // Descending branch (upper curve)
+      // Descending from +Hmax goes through -Hc
+      // M_desc = Ms * tanh( alpha * (H + Hc) )
+      const M_desc = ms * Math.tanh(alpha * (h + hc));
+      const B_desc = mu0 * (h + M_desc);
+
+      // Initial Magnetization Curve (Virgin)
+      // M_init = Ms * tanh( alpha * H )
+      const M_init = ms * Math.tanh(alpha * h);
+      const B_init = mu0 * (h + M_init);
+
+      data.push({ 
+          h, 
+          bAsc: B_asc, 
+          bDesc: B_desc,
+          bInit: (h >= 0 && h <= maxH) ? B_init : null // Only show positive H part for initial
+      });
     }
     return data;
   }, [magInputs]);
@@ -529,36 +590,59 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
             <div className="flex justify-between items-center border-b border-[#2D3F50] pb-2">
               <h2 className="text-lg font-bold text-[#F1F5F9]">Magnetic Params</h2>
             </div>
-            {Object.entries({ ur: 'Relative Permeability (μr)', ms: 'Saturation Mag. Ms (A/m)', hc: 'Coercivity Hc (A/m)', br: 'Remanence Br (T)' }).map(([key, label]) => (
-              <div key={key}>
-                <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
-                <input type="number" step="any" value={magInputs[key]} onChange={e => setMagInputs({...magInputs, [key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+            
+            <div className="grid grid-cols-2 gap-3">
+              {Object.entries({ ur: 'Relative Perm. μr', ms: 'Saturation Ms (A/m)', hc: 'Coercivity Hc (A/m)', br: 'Remanence Br (T)', tc: 'Curie Temp Tc (°C)' }).map(([key, label]) => (
+                <div key={key} className={key === 'ur' ? 'col-span-2' : ''}>
+                  <label className="block text-xs text-[#94A3B8] mb-1">{label}</label>
+                  <input type="number" step="any" value={magInputs[key]} onChange={e => setMagInputs({...magInputs, [key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md space-y-2">
+              <h3 className="text-sm text-[#94A3B8] mb-2">Calculated Properties</h3>
+              <div className="flex justify-between items-center">
+                <span className="text-[#F1F5F9] text-sm">Sat. Induction Bs:</span>
+                <span className="font-bold text-[#4A9EFF]">{magAnalysis.Bs.toFixed(2)} T</span>
               </div>
-            ))}
-            <div className="mt-6 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md text-center">
+              <div className="flex justify-between items-center">
+                <span className="text-[#F1F5F9] text-sm">Abs. Permeability μ:</span>
+                <span className="font-bold text-[#4A9EFF]">{magAnalysis.mu.toExponential(2)} H/m</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[#F1F5F9] text-sm">Energy Prod. BHmax:</span>
+                <span className="font-bold text-[#F59E0B]">{magAnalysis.BHmax.toExponential(2)} J/m³</span>
+              </div>
+            </div>
+
+            <div className="mt-2 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md text-center">
               <h3 className="text-sm text-[#94A3B8] mb-2">Classification</h3>
               <span className={`inline-block px-4 py-2 rounded-md font-bold text-white ${magClass.color}`}>{magClass.label}</span>
             </div>
           </div>
+          
           <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-2 flex flex-col">
             <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">B-H Hysteresis Loop Sketch</h2>
             <div className="flex-1 min-h-[300px]">
               {hysteresisData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={hysteresisData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <ComposedChart data={hysteresisData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                    <XAxis dataKey="h" type="number" stroke="#94A3B8" label={{ value: 'Magnetic Field H (A/m)', position: 'bottom', fill: '#94A3B8' }} />
-                    <YAxis stroke="#94A3B8" label={{ value: 'Flux Density B (T)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
+                    <XAxis dataKey="h" type="number" stroke="#94A3B8" label={{ value: 'Field Strength H (A/m)', position: 'bottom', fill: '#94A3B8' }} />
+                    <YAxis stroke="#94A3B8" label={{ value: 'Induction B (T)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
                     <Tooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} />
-                    <ReferenceLine x={0} stroke="#2D3F50" />
-                    <ReferenceLine y={0} stroke="#2D3F50" />
+                    <Legend />
+                    <ReferenceLine x={0} stroke="#94A3B8" />
+                    <ReferenceLine y={0} stroke="#94A3B8" />
                     <Line type="monotone" dataKey="bAsc" stroke="#4A9EFF" strokeWidth={2} dot={false} name="Ascending" />
-                    <Line type="monotone" dataKey="bDesc" stroke="#F59E0B" strokeWidth={2} dot={false} name="Descending" />
-                  </LineChart>
+                    <Line type="monotone" dataKey="bDesc" stroke="#EF4444" strokeWidth={2} dot={false} name="Descending" />
+                    <Line type="monotone" dataKey="bInit" stroke="#F59E0B" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Initial" />
+                  </ComposedChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-full flex items-center justify-center text-[#94A3B8]">
-                  Enter Ms and Hc &gt; 0 to view hysteresis loop
+                <div className="flex items-center justify-center h-full text-[#94A3B8]">
+                  Enter Ms and Hc to generate loop
                 </div>
               )}
             </div>
