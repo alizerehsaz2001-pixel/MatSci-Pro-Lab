@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceDot, ScatterChart, Scatter, ZAxis } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceDot, ScatterChart, Scatter, ZAxis, ComposedChart } from 'recharts';
 import { Download, AlertTriangle, Info, Plus, Trash2 } from 'lucide-react';
 
 const TABS = [
@@ -331,24 +331,113 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
     };
   }, [creepInputs, creepData]);
 
-  // --- SUB-MODULE 5: Impact ---
-  const [impactLogs, setImpactLogs] = useState([]);
-  const [impactInput, setImpactInput] = useState({ temp: 20, energy: 50 });
-  const [kicInput, setKicInput] = useState({ load: 15, thickness: 0.02, width: 0.04, crack: 0.01 });
+  // --- SUB-MODULE 5: Impact & Fracture ---
+  const [impactLogs, setImpactLogs] = useState([
+    { id: 1, temp: -196, energy: 5 },
+    { id: 2, temp: -100, energy: 12 },
+    { id: 3, temp: -40, energy: 25 },
+    { id: 4, temp: 0, energy: 80 },
+    { id: 5, temp: 25, energy: 110 },
+    { id: 6, temp: 100, energy: 120 }
+  ]);
+  const [impactInput, setImpactInput] = useState({ temp: 0, energy: 0 });
+  
+  // Fracture States
+  const [fractureMode, setFractureMode] = useState('calculator'); // 'calculator' (KIC) or 'critical' (ac)
+  const [kicInput, setKicInput] = useState({ load: 25, thickness: 0.025, width: 0.05, crack: 0.025, span: 0.2 }); // Added span for SENB
+  const [specimenType, setSpecimenType] = useState('CT'); // 'CT' or 'SENB'
+  const [critCrackInput, setCritCrackInput] = useState({ KIC: 50, stress: 300, Y: 1.12 });
 
   const addImpactLog = () => {
+    if (impactInput.energy < 0) return;
     setImpactLogs(prev => [...prev, { id: Date.now(), ...impactInput }].sort((a, b) => a.temp - b.temp));
+    setImpactInput({ temp: 0, energy: 0 });
   };
 
+  const impactAnalysis = useMemo(() => {
+    if (impactLogs.length < 3) return { dbtt: 'N/A', curve: [] };
+
+    const energies = impactLogs.map(l => l.energy);
+    const temps = impactLogs.map(l => l.temp);
+    const minE = Math.min(...energies);
+    const maxE = Math.max(...energies);
+    const avgE = (minE + maxE) / 2;
+
+    // Estimate DBTT: Find temp where energy crosses avgE
+    // Simple linear interpolation between the two points straddling avgE
+    let dbtt = null;
+    for (let i = 0; i < impactLogs.length - 1; i++) {
+      if ((impactLogs[i].energy <= avgE && impactLogs[i+1].energy >= avgE) || 
+          (impactLogs[i].energy >= avgE && impactLogs[i+1].energy <= avgE)) {
+        const t1 = impactLogs[i].temp;
+        const t2 = impactLogs[i+1].temp;
+        const e1 = impactLogs[i].energy;
+        const e2 = impactLogs[i+1].energy;
+        dbtt = t1 + (avgE - e1) * (t2 - t1) / (e2 - e1);
+        break;
+      }
+    }
+
+    // Generate Sigmoid Curve for visualization
+    // E = Lower + (Upper - Lower) / (1 + exp((DBTT - T) / k))
+    // We estimate 'k' (transition width) roughly from data spread
+    const k = 20; // heuristic width factor
+    const curve = [];
+    const tMin = Math.min(...temps) - 50;
+    const tMax = Math.max(...temps) + 50;
+    
+    if (dbtt !== null) {
+      for (let t = tMin; t <= tMax; t += 5) {
+        const fitEnergy = minE + (maxE - minE) / (1 + Math.exp((dbtt - t) / k));
+        curve.push({ temp: t, fitEnergy });
+      }
+    }
+
+    return { 
+      dbtt: dbtt !== null ? Math.round(dbtt) : 'N/A', 
+      upperShelf: maxE,
+      lowerShelf: minE,
+      curve 
+    };
+  }, [impactLogs]);
+
   const kicResult = useMemo(() => {
-    const { load, thickness, width, crack } = kicInput;
-    // Simplified KIC for compact tension: K = (P / (B * W^0.5)) * f(a/W)
+    const { load, thickness, width, crack, span } = kicInput;
     const aW = crack / width;
-    if (aW < 0.2 || aW > 0.8) return 'Invalid a/W';
-    const f = (2 + aW) * (0.886 + 4.64*aW - 13.32*aW*aW + 14.72*Math.pow(aW, 3) - 5.6*Math.pow(aW, 4)) / Math.pow(1 - aW, 1.5);
-    const K = (load / (thickness * Math.sqrt(width))) * f;
-    return K.toFixed(2);
-  }, [kicInput]);
+    if (aW < 0.1 || aW > 0.9) return 'Invalid a/W';
+
+    // Load P in kN -> N
+    const P = load * 1000;
+    // Dimensions in m
+    
+    let K = 0; // MPa*m^0.5
+
+    if (specimenType === 'CT') {
+      // Compact Tension
+      // K = (P / (B * W^0.5)) * f(a/W)
+      const f = (2 + aW) * (0.886 + 4.64*aW - 13.32*aW*aW + 14.72*Math.pow(aW, 3) - 5.6*Math.pow(aW, 4)) / Math.pow(1 - aW, 1.5);
+      K = (P / (thickness * Math.sqrt(width))) * f;
+    } else {
+      // SENB (Single Edge Notch Bend)
+      // K = (P * S / (B * W^1.5)) * f(a/W)
+      // f(x) = 3x^0.5 [1.99 - x(1-x)(2.15 - 3.93x + 2.7x^2)] / [2(1+2x)(1-x)^1.5]
+      const x = aW;
+      const f = (3 * Math.sqrt(x) * (1.99 - x*(1-x)*(2.15 - 3.93*x + 2.7*x*x))) / (2 * (1 + 2*x) * Math.pow(1-x, 1.5));
+      K = (P * span / (thickness * Math.pow(width, 1.5))) * f;
+    }
+
+    // Convert Pa*m^0.5 to MPa*m^0.5
+    return (K / 1e6).toFixed(2);
+  }, [kicInput, specimenType]);
+
+  const critCrackResult = useMemo(() => {
+    const { KIC, stress, Y } = critCrackInput;
+    // ac = (1/pi) * (KIC / (Y * stress))^2
+    // KIC in MPa m^0.5, Stress in MPa -> ac in meters
+    if (stress <= 0 || Y <= 0) return 0;
+    const ac = (1 / Math.PI) * Math.pow(KIC / (Y * stress), 2);
+    return (ac * 1000).toFixed(2); // Convert to mm
+  }, [critCrackInput]);
 
   // --- SUB-MODULE 6: Calculators ---
   const [calcInput, setCalcInput] = useState({ E: 200, nu: 0.3, Sy: 250, stress: 150, Kt: 2.5 });
@@ -719,93 +808,157 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
         {/* TAB 5: Impact & Fracture */}
         {activeTab === 'Impact & Fracture' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Impact Section */}
             <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg flex flex-col">
-              <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Charpy Impact Test Logger</h2>
+              <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Charpy Impact Test</h2>
               
               <div className="flex gap-2 mb-4">
                 <input 
                   type="number" 
                   placeholder="Temp (°C)" 
-                  value={impactInput.temp}
+                  value={impactInput.temp} 
                   onChange={e => setImpactInput({...impactInput, temp: Number(e.target.value)})}
-                  className="flex-1 bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none"
+                  className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
                 />
                 <input 
                   type="number" 
                   placeholder="Energy (J)" 
-                  value={impactInput.energy}
+                  value={impactInput.energy} 
                   onChange={e => setImpactInput({...impactInput, energy: Number(e.target.value)})}
-                  className="flex-1 bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none"
+                  className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
                 />
-                <button onClick={addImpactLog} className="bg-[#4A9EFF] text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors flex items-center gap-2">
-                  <Plus size={16} /> Add
+                <button onClick={addImpactLog} className="bg-[#4A9EFF] text-white px-4 rounded-md hover:bg-blue-600 transition-colors">
+                  <Plus size={20} />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto bg-[#0F1923] border border-[#2D3F50] rounded-md mb-4">
-                {impactLogs.length === 0 ? (
-                  <div className="p-8 text-center text-[#94A3B8]">No tests recorded yet.</div>
-                ) : (
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-[#1A2634] text-[#94A3B8] sticky top-0">
-                      <tr>
-                        <th className="p-2">Temp (°C)</th>
-                        <th className="p-2">Energy (J)</th>
-                        <th className="p-2">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#2D3F50]">
-                      {impactLogs.map(log => (
-                        <tr key={log.id}>
-                          <td className="p-2 text-[#F1F5F9]">{log.temp}</td>
-                          <td className="p-2 text-[#F1F5F9]">{log.energy}</td>
-                          <td className="p-2">
-                            <button onClick={() => setImpactLogs(prev => prev.filter(l => l.id !== log.id))} className="text-[#EF4444] hover:text-red-400"><Trash2 size={16} /></button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-              
-              <div className="h-64" id="impact-chart">
+              <div className="flex-1 min-h-[300px] mb-4">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
+                  <ComposedChart margin={{ top: 20, right: 20, bottom: 20, left: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                    <XAxis dataKey="temp" type="number" name="Temperature" unit="°C" stroke="#94A3B8" />
-                    <YAxis dataKey="energy" type="number" name="Energy" unit="J" stroke="#94A3B8" />
-                    <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} />
-                    <Scatter name="Impact Energy" data={impactLogs} fill="#4A9EFF" />
-                  </ScatterChart>
+                    <XAxis dataKey="temp" type="number" stroke="#94A3B8" label={{ value: 'Temperature (°C)', position: 'bottom', fill: '#94A3B8' }} domain={['auto', 'auto']} />
+                    <YAxis stroke="#94A3B8" label={{ value: 'Impact Energy (J)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} />
+                    <Legend verticalAlign="top" height={36}/>
+                    {/* Fitted Curve */}
+                    <Line data={impactAnalysis.curve} type="monotone" dataKey="fitEnergy" stroke="#4A9EFF" strokeWidth={2} dot={false} name="Sigmoid Fit" />
+                    {/* Data Points */}
+                    <Scatter data={impactLogs} dataKey="energy" fill="#F59E0B" name="Test Data" />
+                  </ComposedChart>
                 </ResponsiveContainer>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-center text-sm">
+                 <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]">
+                    <div className="text-[#94A3B8]">Lower Shelf</div>
+                    <div className="font-bold text-[#F1F5F9]">{impactAnalysis.lowerShelf} J</div>
+                 </div>
+                 <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]">
+                    <div className="text-[#94A3B8]">DBTT (Est)</div>
+                    <div className="font-bold text-[#F59E0B]">{impactAnalysis.dbtt} °C</div>
+                 </div>
+                 <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]">
+                    <div className="text-[#94A3B8]">Upper Shelf</div>
+                    <div className="font-bold text-[#F1F5F9]">{impactAnalysis.upperShelf} J</div>
+                 </div>
               </div>
             </div>
 
-            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg space-y-4">
-              <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Fracture Toughness (KIC) Calculator</h2>
-              <div className="grid grid-cols-2 gap-4">
-                {Object.entries({ load: 'Failure Load P (kN)', thickness: 'Thickness B (m)', width: 'Width W (m)', crack: 'Crack Length a (m)' }).map(([key, label]) => (
-                  <div key={key}>
-                    <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
-                    <input 
-                      type="number" 
-                      step="any"
-                      value={kicInput[key]} 
-                      onChange={e => setKicInput({...kicInput, [key]: Number(e.target.value)})}
-                      className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
-                    />
-                  </div>
-                ))}
-              </div>
-              
-              <div className="mt-6 p-6 bg-[#0F1923] border border-[#2D3F50] rounded-md text-center">
-                <h3 className="text-sm text-[#94A3B8] mb-2">Calculated KIC (MPa·m^0.5)</h3>
-                <div className={`text-4xl font-bold ${kicResult === 'Invalid a/W' ? 'text-[#EF4444] text-2xl' : 'text-[#4A9EFF]'}`}>
-                  {kicResult}
+            {/* Fracture Section */}
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg flex flex-col">
+              <div className="flex items-center justify-between border-b border-[#2D3F50] pb-2 mb-4">
+                <h2 className="text-lg font-bold text-[#F1F5F9]">Fracture Mechanics</h2>
+                <div className="flex bg-[#0F1923] rounded-md p-1">
+                  <button 
+                    onClick={() => setFractureMode('calculator')}
+                    className={`px-3 py-1 text-xs rounded-sm transition-colors ${fractureMode === 'calculator' ? 'bg-[#4A9EFF] text-white' : 'text-[#94A3B8] hover:text-[#F1F5F9]'}`}
+                  >
+                    KIC Calc
+                  </button>
+                  <button 
+                    onClick={() => setFractureMode('critical')}
+                    className={`px-3 py-1 text-xs rounded-sm transition-colors ${fractureMode === 'critical' ? 'bg-[#4A9EFF] text-white' : 'text-[#94A3B8] hover:text-[#F1F5F9]'}`}
+                  >
+                    Crit. Flaw
+                  </button>
                 </div>
-                <p className="text-xs text-[#94A3B8] mt-4">Based on Compact Tension C(T) specimen standard formula.</p>
               </div>
+
+              {fractureMode === 'calculator' ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-[#94A3B8] mb-1">Specimen Geometry</label>
+                    <select 
+                      value={specimenType} 
+                      onChange={e => setSpecimenType(e.target.value)}
+                      className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none"
+                    >
+                      <option value="CT">Compact Tension C(T)</option>
+                      <option value="SENB">Single Edge Notch Bend (SENB)</option>
+                    </select>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-[#94A3B8] mb-1">Fracture Load P (kN)</label>
+                      <input type="number" value={kicInput.load} onChange={e => setKicInput({...kicInput, load: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#94A3B8] mb-1">Thickness B (m)</label>
+                      <input type="number" step="0.001" value={kicInput.thickness} onChange={e => setKicInput({...kicInput, thickness: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#94A3B8] mb-1">Width W (m)</label>
+                      <input type="number" step="0.001" value={kicInput.width} onChange={e => setKicInput({...kicInput, width: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#94A3B8] mb-1">Crack Length a (m)</label>
+                      <input type="number" step="0.001" value={kicInput.crack} onChange={e => setKicInput({...kicInput, crack: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                    </div>
+                    {specimenType === 'SENB' && (
+                      <div className="col-span-2">
+                        <label className="block text-xs text-[#94A3B8] mb-1">Support Span S (m)</label>
+                        <input type="number" step="0.001" value={kicInput.span} onChange={e => setKicInput({...kicInput, span: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-6 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md text-center">
+                    <div className="text-[#94A3B8] text-sm mb-1">Fracture Toughness (KIC)</div>
+                    <div className="text-3xl font-bold text-[#22C55E]">{kicResult} <span className="text-lg font-normal text-[#94A3B8]">MPa√m</span></div>
+                    <div className="text-xs text-[#94A3B8] mt-2">
+                      Validity check: B, a &ge; 2.5(KIC/Sy)² required
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <p className="text-sm text-[#94A3B8] italic mb-2">
+                    Calculate the critical crack size that leads to failure for a given stress and toughness.
+                  </p>
+                  <div>
+                    <label className="block text-sm text-[#94A3B8] mb-1">Fracture Toughness (KIC) [MPa√m]</label>
+                    <input type="number" value={critCrackInput.KIC} onChange={e => setCritCrackInput({...critCrackInput, KIC: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-[#94A3B8] mb-1">Applied Stress (σ) [MPa]</label>
+                    <input type="number" value={critCrackInput.stress} onChange={e => setCritCrackInput({...critCrackInput, stress: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-[#94A3B8] mb-1">Geometry Factor (Y)</label>
+                    <input type="number" step="0.01" value={critCrackInput.Y} onChange={e => setCritCrackInput({...critCrackInput, Y: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                    <p className="text-xs text-[#94A3B8] mt-1">Typically 1.0 for center crack, 1.12 for edge crack.</p>
+                  </div>
+
+                  <div className="mt-6 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md text-center">
+                    <div className="text-[#94A3B8] text-sm mb-1">Critical Crack Length (ac)</div>
+                    <div className="text-3xl font-bold text-[#EF4444]">{critCrackResult} <span className="text-lg font-normal text-[#94A3B8]">mm</span></div>
+                    <div className="text-xs text-[#94A3B8] mt-2">
+                      Cracks larger than this will propagate unstably.
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
