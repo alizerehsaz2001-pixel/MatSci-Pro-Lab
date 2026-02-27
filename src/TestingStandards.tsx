@@ -10,16 +10,28 @@ const TABS = [
 ];
 
 const STANDARDS = [
-  { id: 'astm-e8', code: 'ASTM E8', org: 'ASTM', prop: 'Tensile', title: 'Tension Testing of Metallic Materials', scope: 'Yield strength, UTS, elongation, and reduction of area.', specimen: 'Dogbone (flat or round)', params: 'Strain rate, temperature', procedure: ['1. Measure specimen dimensions', '2. Mark gage length', '3. Grip specimen securely', '4. Apply load at specified rate', '5. Record load-extension curve', '6. Measure final dimensions'] },
-  { id: 'iso-6892', code: 'ISO 6892', org: 'ISO', prop: 'Tensile', title: 'Metallic materials — Tensile testing', scope: 'Room temperature tensile properties.', specimen: 'Proportional or non-proportional', params: 'Strain rate control (Method A/B)', procedure: ['1. Determine original cross-section', '2. Set strain rate', '3. Execute test to fracture', '4. Calculate Rp0.2 and Rm'] },
-  { id: 'astm-e18', code: 'ASTM E18', org: 'ASTM', prop: 'Hardness', title: 'Rockwell Hardness of Metallic Materials', scope: 'Macro-hardness using diamond cone or steel ball.', specimen: 'Flat, smooth, min thickness 10x depth', params: 'Scale (HRC, HRB), minor/major load', procedure: ['1. Prepare flat surface', '2. Apply minor load (10kgf)', '3. Zero indicator', '4. Apply major load', '5. Remove major load, read hardness'] },
-  { id: 'astm-e92', code: 'ASTM E92', org: 'ASTM', prop: 'Hardness', title: 'Vickers Hardness of Metallic Materials', scope: 'Micro and macro hardness (HV).', specimen: 'Polished surface', params: 'Test force (gf to kgf), dwell time', procedure: ['1. Polish specimen', '2. Apply force for 10-15s', '3. Measure diagonals d1, d2', '4. Calculate HV = 1.8544*F/d^2'] },
-  { id: 'iso-6507', code: 'ISO 6507', org: 'ISO', prop: 'Hardness', title: 'Metallic materials — Vickers hardness test', scope: 'Standard Vickers testing.', specimen: 'Polished, flat', params: 'Force, time', procedure: ['1. Surface prep', '2. Indentation', '3. Optical measurement'] },
-  { id: 'astm-e23', code: 'ASTM E23', org: 'ASTM', prop: 'Impact', title: 'Notched Bar Impact Testing', scope: 'Absorbed energy (Charpy/Izod).', specimen: '10x10x55mm, V-notch or U-notch', params: 'Temperature, pendulum energy', procedure: ['1. Machine notch precisely', '2. Condition to test temp', '3. Place on anvils', '4. Release pendulum', '5. Record absorbed energy'] },
-  { id: 'iso-148', code: 'ISO 148', org: 'ISO', prop: 'Impact', title: 'Charpy pendulum impact test', scope: 'Impact energy determination.', specimen: '10x10x55mm V-notch', params: 'Striker radius (2mm or 8mm)', procedure: ['1. Prepare specimen', '2. Temperature condition', '3. Test within 5s of removal'] },
-  { id: 'astm-e399', code: 'ASTM E399', org: 'ASTM', prop: 'Fracture', title: 'Linear-Elastic Plane-Strain Fracture Toughness KIC', scope: 'KIC determination.', specimen: 'Compact Tension C(T) or Bend SE(B)', params: 'Crack length, load rate', procedure: ['1. Fatigue precrack', '2. Load to failure', '3. Record P-v curve', '4. Calculate PQ, validate KIC'] },
-  { id: 'astm-e466', code: 'ASTM E466', org: 'ASTM', prop: 'Fatigue', title: 'Conducting Force Controlled Constant Amplitude Axial Fatigue Tests', scope: 'S-N curve generation.', specimen: 'Smooth, polished gage section', params: 'Stress ratio (R), frequency', procedure: ['1. Polish to <0.2um Ra', '2. Align in grips', '3. Apply cyclic load', '4. Record cycles to failure'] },
-  { id: 'din-en-10002', code: 'DIN EN 10002', org: 'DIN/EN', prop: 'Tensile', title: 'Tensile testing of metallic materials', scope: 'Superseded by ISO 6892, still referenced.', specimen: 'Standard tensile', params: 'Speed', procedure: ['1. Setup', '2. Test', '3. Report'] }
+  // Tensile
+  { id: 'astm-e8', code: 'ASTM E8/E8M', org: 'ASTM', prop: 'Tensile', title: 'Standard Test Methods for Tension Testing of Metallic Materials', scope: 'Yield strength, ultimate tensile strength (UTS), elongation, and reduction of area at room temperature.', specimen: 'Dogbone (flat or round), various sizes.', params: 'Strain rate control, temperature (room)', procedure: ['1. Measure original cross-sectional area and gage length.', '2. Grip specimen securely in testing machine.', '3. Apply load at specified strain rate.', '4. Record load-extension curve.', '5. Measure final dimensions after fracture.', '6. Calculate stress and strain.'] },
+  { id: 'astm-e21', code: 'ASTM E21', org: 'ASTM', prop: 'Tensile', title: 'Standard Test Methods for Elevated Temperature Tension Tests of Metallic Materials', scope: 'Tensile properties at elevated temperatures.', specimen: 'Standard round or flat.', params: 'Temperature control, strain rate.', procedure: ['1. Heat specimen to test temperature.', '2. Soak to ensure uniform temperature.', '3. Perform tension test.', '4. Record load and extension.'] },
+  { id: 'iso-6892-1', code: 'ISO 6892-1', org: 'ISO', prop: 'Tensile', title: 'Metallic materials — Tensile testing — Part 1: Method of test at room temperature', scope: 'Room temperature tensile properties.', specimen: 'Proportional or non-proportional', params: 'Strain rate control (Method A/B)', procedure: ['1. Determine original cross-section', '2. Set strain rate', '3. Execute test to fracture', '4. Calculate Rp0.2 and Rm'] },
+  
+  // Hardness
+  { id: 'astm-e18', code: 'ASTM E18', org: 'ASTM', prop: 'Hardness', title: 'Standard Test Methods for Rockwell Hardness of Metallic Materials', scope: 'Macro-hardness using diamond cone or steel ball indenters.', specimen: 'Flat, smooth, min thickness 10x indentation depth.', params: 'Scale (HRC, HRB, etc.), minor/major load.', procedure: ['1. Prepare flat, clean surface.', '2. Apply preliminary (minor) load.', '3. Zero indicator.', '4. Apply total (major) load.', '5. Remove major load, read hardness value.'] },
+  { id: 'astm-e92', code: 'ASTM E92', org: 'ASTM', prop: 'Hardness', title: 'Standard Test Methods for Vickers Hardness and Knoop Hardness of Metallic Materials', scope: 'Microindentation and macroindentation hardness.', specimen: 'Polished surface, flat.', params: 'Test force (gf to kgf), dwell time (10-15s).', procedure: ['1. Polish specimen surface.', '2. Apply force for specified dwell time.', '3. Measure diagonals of indentation.', '4. Calculate hardness value.'] },
+  { id: 'astm-e10', code: 'ASTM E10', org: 'ASTM', prop: 'Hardness', title: 'Standard Test Method for Brinell Hardness of Metallic Materials', scope: 'Macro-hardness using a hard carbide ball.', specimen: 'Flat, smooth, relatively large area.', params: 'Ball diameter (10mm typical), load (3000kgf typical).', procedure: ['1. Prepare surface.', '2. Apply load for specified time.', '3. Measure diameter of indentation.', '4. Calculate HBW.'] },
+  
+  // Impact
+  { id: 'astm-e23', code: 'ASTM E23', org: 'ASTM', prop: 'Impact', title: 'Standard Test Methods for Notched Bar Impact Testing of Metallic Materials', scope: 'Absorbed energy (Charpy and Izod).', specimen: '10x10x55mm, V-notch or U-notch.', params: 'Temperature, pendulum energy.', procedure: ['1. Machine notch precisely.', '2. Condition to test temperature.', '3. Place on anvils (Charpy) or clamp (Izod).', '4. Release pendulum.', '5. Record absorbed energy.'] },
+  { id: 'iso-148-1', code: 'ISO 148-1', org: 'ISO', prop: 'Impact', title: 'Metallic materials — Charpy pendulum impact test — Part 1: Test method', scope: 'Impact energy determination.', specimen: '10x10x55mm V-notch', params: 'Striker radius (2mm or 8mm)', procedure: ['1. Prepare specimen', '2. Temperature condition', '3. Test within 5s of removal'] },
+  
+  // Fracture & Fatigue
+  { id: 'astm-e399', code: 'ASTM E399', org: 'ASTM', prop: 'Fracture', title: 'Standard Test Method for Linear-Elastic Plane-Strain Fracture Toughness KIc of Metallic Materials', scope: 'KIc determination.', specimen: 'Compact Tension C(T) or Single-Edge Bend SE(B).', params: 'Crack length, load rate.', procedure: ['1. Fatigue precrack specimen.', '2. Load to failure at specified rate.', '3. Record Load-displacement curve.', '4. Calculate PQ, validate for KIc.'] },
+  { id: 'astm-e1820', code: 'ASTM E1820', org: 'ASTM', prop: 'Fracture', title: 'Standard Test Method for Measurement of Fracture Toughness', scope: 'J-integral and crack-tip opening displacement (CTOD).', specimen: 'C(T), SE(B), or Disk-Shaped Compact.', params: 'Unloading compliance, crack growth.', procedure: ['1. Fatigue precrack.', '2. Load and unload to measure compliance.', '3. Calculate J or CTOD vs. crack extension (R-curve).'] },
+  { id: 'astm-e466', code: 'ASTM E466', org: 'ASTM', prop: 'Fatigue', title: 'Standard Practice for Conducting Force Controlled Constant Amplitude Axial Fatigue Tests of Metallic Materials', scope: 'S-N curve generation.', specimen: 'Smooth, polished gage section.', params: 'Stress ratio (R), frequency, waveform.', procedure: ['1. Polish gage section to <0.2um Ra.', '2. Align carefully in grips.', '3. Apply cyclic load.', '4. Record cycles to failure.'] },
+  { id: 'astm-e606', code: 'ASTM E606', org: 'ASTM', prop: 'Fatigue', title: 'Standard Test Method for Strain-Controlled Fatigue Testing', scope: 'Low-cycle fatigue (LCF) properties.', specimen: 'Uniform gage section, polished.', params: 'Strain amplitude, strain rate, temperature.', procedure: ['1. Attach extensometer.', '2. Apply cyclic strain.', '3. Record hysteresis loops.', '4. Determine cycles to failure.'] },
+  
+  // Creep
+  { id: 'astm-e139', code: 'ASTM E139', org: 'ASTM', prop: 'Creep', title: 'Standard Test Methods for Conducting Creep, Creep-Rupture, and Stress-Rupture Tests of Metallic Materials', scope: 'Time-dependent deformation under constant load and temperature.', specimen: 'Standard tensile type.', params: 'Constant load, constant elevated temperature.', procedure: ['1. Heat to test temperature.', '2. Apply constant load.', '3. Measure extension over time.', '4. Record time to rupture (if applicable).'] }
 ];
 
 const TEST_TYPES = ['Tensile', 'Hardness', 'Impact', 'Fatigue', 'Fracture', 'Creep'];
@@ -51,8 +63,22 @@ export default function TestingStandards({ materials, setMaterials, testLogs, se
 
   // --- SUB-MODULE 2: Test Logger ---
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
-  const [logForm, setLogForm] = useState({ materialName: '', testType: 'Tensile', standard: '', date: new Date().toISOString().split('T')[0], operator: currentUser.name, specimenId: '', result: '', unit: '', status: 'Pending', notes: '' });
+  const [logForm, setLogForm] = useState({ 
+    materialName: '', 
+    testType: 'Tensile', 
+    standard: '', 
+    date: new Date().toISOString().split('T')[0], 
+    operator: currentUser.name, 
+    specimenId: '', 
+    result: '', 
+    unit: '', 
+    status: 'Pending', 
+    notes: '',
+    temperature: '25',
+    humidity: '50'
+  });
   const [logSearch, setLogSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
 
   const saveLog = () => {
     if (!logForm.materialName || !logForm.result) {
@@ -62,6 +88,21 @@ export default function TestingStandards({ materials, setMaterials, testLogs, se
     const newLog = { ...logForm, id: `TEST-${Date.now().toString().slice(-6)}`, result: Number(logForm.result) };
     setTestLogs(prev => [newLog, ...prev]);
     setIsLogModalOpen(false);
+    // Reset form after save
+    setLogForm({
+      materialName: '', 
+      testType: 'Tensile', 
+      standard: '', 
+      date: new Date().toISOString().split('T')[0], 
+      operator: currentUser.name, 
+      specimenId: '', 
+      result: '', 
+      unit: '', 
+      status: 'Pending', 
+      notes: '',
+      temperature: '25',
+      humidity: '50'
+    });
     addToast('Test logged successfully');
   };
 
@@ -71,8 +112,12 @@ export default function TestingStandards({ materials, setMaterials, testLogs, se
   };
 
   const filteredLogs = useMemo(() => {
-    return testLogs.filter(l => l.materialName.toLowerCase().includes(logSearch.toLowerCase()) || l.id.toLowerCase().includes(logSearch.toLowerCase()));
-  }, [testLogs, logSearch]);
+    return testLogs.filter(l => {
+      const matchSearch = l.materialName.toLowerCase().includes(logSearch.toLowerCase()) || l.id.toLowerCase().includes(logSearch.toLowerCase());
+      const matchStatus = statusFilter === 'All' ? true : l.status === statusFilter;
+      return matchSearch && matchStatus;
+    });
+  }, [testLogs, logSearch, statusFilter]);
 
   // --- SUB-MODULE 3: Specimen Calc ---
   const [specType, setSpecType] = useState('Tensile');
@@ -237,12 +282,20 @@ export default function TestingStandards({ materials, setMaterials, testLogs, se
         {/* TAB 2: Test Logger */}
         {activeTab === 'Test Logger' && (
           <div className="bg-[#1A2634] rounded-lg border border-[#2D3F50] shadow-lg flex flex-col h-full print:hidden">
-            <div className="p-4 border-b border-[#2D3F50] flex justify-between items-center">
-              <div className="relative w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" size={18} />
-                <input type="text" placeholder="Search logs..." value={logSearch} onChange={e => setLogSearch(e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 pl-10 pr-4 text-[#F1F5F9] focus:outline-none focus:border-[#4A9EFF] text-sm" />
+            <div className="p-4 border-b border-[#2D3F50] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div className="flex gap-4 w-full sm:w-auto">
+                <div className="relative flex-1 sm:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" size={18} />
+                  <input type="text" placeholder="Search logs..." value={logSearch} onChange={e => setLogSearch(e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 pl-10 pr-4 text-[#F1F5F9] focus:outline-none focus:border-[#4A9EFF] text-sm" />
+                </div>
+                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-3 text-[#F1F5F9] focus:outline-none focus:border-[#4A9EFF] text-sm">
+                  <option value="All">All Statuses</option>
+                  <option value="Pass">Pass</option>
+                  <option value="Fail">Fail</option>
+                  <option value="Pending">Pending</option>
+                </select>
               </div>
-              <button onClick={() => setIsLogModalOpen(true)} className="bg-[#4A9EFF] text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors flex items-center gap-2 text-sm font-medium">
+              <button onClick={() => setIsLogModalOpen(true)} className="bg-[#4A9EFF] text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors flex items-center gap-2 text-sm font-medium whitespace-nowrap">
                 <Plus size={16} /> Log Test
               </button>
             </div>
@@ -256,13 +309,14 @@ export default function TestingStandards({ materials, setMaterials, testLogs, se
                     <th className="p-3 font-medium">Test Type</th>
                     <th className="p-3 font-medium">Standard</th>
                     <th className="p-3 font-medium">Result</th>
+                    <th className="p-3 font-medium">Conditions</th>
                     <th className="p-3 font-medium">Status</th>
                     <th className="p-3 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#2D3F50]">
                   {testLogs.length === 0 ? (
-                    <tr><td colSpan={8} className="p-8 text-center text-[#94A3B8]">No tests recorded yet.</td></tr>
+                    <tr><td colSpan={9} className="p-8 text-center text-[#94A3B8]">No tests recorded yet.</td></tr>
                   ) : filteredLogs.map(log => (
                     <tr key={log.id} className="hover:bg-[#2D3F50]/50">
                       <td className="p-3 text-[#94A3B8]">{log.id}</td>
@@ -271,6 +325,7 @@ export default function TestingStandards({ materials, setMaterials, testLogs, se
                       <td className="p-3 text-[#94A3B8]">{log.testType}</td>
                       <td className="p-3 text-[#94A3B8]">{log.standard}</td>
                       <td className="p-3 font-bold text-[#F1F5F9]">{log.result} {log.unit}</td>
+                      <td className="p-3 text-[#94A3B8] text-xs">{log.temperature}°C, {log.humidity}%RH</td>
                       <td className="p-3">
                         <span className={`px-2 py-1 rounded text-xs font-medium ${log.status === 'Pass' ? 'bg-[#22C55E]/20 text-[#22C55E]' : log.status === 'Fail' ? 'bg-[#EF4444]/20 text-[#EF4444]' : 'bg-[#F59E0B]/20 text-[#F59E0B]'}`}>
                           {log.status}
@@ -592,6 +647,18 @@ export default function TestingStandards({ materials, setMaterials, testLogs, se
                 <label className="block text-sm text-[#94A3B8] mb-1">Date</label>
                 <input type="date" value={logForm.date} onChange={e => setLogForm({...logForm, date: e.target.value})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
               </div>
+              <div>
+                <label className="block text-sm text-[#94A3B8] mb-1">Temperature (°C)</label>
+                <input type="number" step="any" value={logForm.temperature} onChange={e => setLogForm({...logForm, temperature: e.target.value})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-[#94A3B8] mb-1">Humidity (%RH)</label>
+                <input type="number" step="any" value={logForm.humidity} onChange={e => setLogForm({...logForm, humidity: e.target.value})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              </div>
+            </div>
+            <div className="mb-6">
+              <label className="block text-sm text-[#94A3B8] mb-1">Notes</label>
+              <textarea value={logForm.notes} onChange={e => setLogForm({...logForm, notes: e.target.value})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none min-h-[80px] resize-none" placeholder="Any specific observations..."></textarea>
             </div>
             <div className="flex justify-end gap-3">
               <button onClick={() => setIsLogModalOpen(false)} className="px-4 py-2 rounded-md text-[#94A3B8] hover:text-[#F1F5F9]">Cancel</button>
