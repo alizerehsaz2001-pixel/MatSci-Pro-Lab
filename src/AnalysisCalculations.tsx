@@ -371,14 +371,22 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
   }, [interpText, interpMethod, queryX]);
 
   // --- SUB-MODULE 4: Material Selector ---
-  const [selCriteria, setSelCriteria] = useState({ minYield: 0, maxDensity: 20, minTemp: 0, maxTemp: 1000, electrical: 'any' });
+  const [selCriteria, setSelCriteria] = useState({ 
+    minYield: 0, 
+    maxDensity: 20, 
+    minYoungs: 0, 
+    minMeltingPoint: 0, 
+    minThermalCond: 0, 
+    electrical: 'any',
+    sortBy: 'match'
+  });
 
   const rankedMaterials = useMemo(() => {
     if (!materials || materials.length === 0) return [];
     
-    return materials.map(m => {
+    const ranked = materials.map(m => {
       let score = 0;
-      let maxScore = 4;
+      let maxScore = 6; // Increased max score for new criteria
       
       // Yield Strength
       if (m.yieldStrength >= selCriteria.minYield) score += 1;
@@ -388,9 +396,17 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
       if (m.density <= selCriteria.maxDensity) score += 1;
       else if (m.density > 0) score += Math.max(0, selCriteria.maxDensity / m.density);
       
-      // Temp (Melting point as proxy for max temp)
-      if (m.meltingPoint >= selCriteria.maxTemp) score += 1;
-      else if (selCriteria.maxTemp > 0) score += Math.max(0, m.meltingPoint / selCriteria.maxTemp);
+      // Young's Modulus
+      if (m.youngsModulus >= selCriteria.minYoungs) score += 1;
+      else if (selCriteria.minYoungs > 0) score += Math.max(0, m.youngsModulus / selCriteria.minYoungs);
+
+      // Melting Point
+      if (m.meltingPoint >= selCriteria.minMeltingPoint) score += 1;
+      else if (selCriteria.minMeltingPoint > 0) score += Math.max(0, m.meltingPoint / selCriteria.minMeltingPoint);
+
+      // Thermal Conductivity
+      if (m.thermalConductivity >= selCriteria.minThermalCond) score += 1;
+      else if (selCriteria.minThermalCond > 0) score += Math.max(0, m.thermalConductivity / selCriteria.minThermalCond);
 
       // Electrical
       if (selCriteria.electrical !== 'any') {
@@ -402,8 +418,19 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
       }
 
       const matchPct = Math.round((score / maxScore) * 100);
-      return { ...m, matchPct };
-    }).sort((a, b) => b.matchPct - a.matchPct);
+      const specificStrength = m.density > 0 ? (m.yieldStrength / m.density) : 0;
+      
+      return { ...m, matchPct, specificStrength };
+    });
+
+    // Sort based on selected criteria
+    return ranked.sort((a, b) => {
+      if (selCriteria.sortBy === 'match') return b.matchPct - a.matchPct;
+      if (selCriteria.sortBy === 'specificStrength') return b.specificStrength - a.specificStrength;
+      if (selCriteria.sortBy === 'yieldStrength') return b.yieldStrength - a.yieldStrength;
+      if (selCriteria.sortBy === 'density') return a.density - b.density; // Lower density is "better" for sorting
+      return b.matchPct - a.matchPct;
+    });
   }, [materials, selCriteria]);
 
   // --- SUB-MODULE 5: Failure Analysis ---
@@ -692,7 +719,7 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
         {/* TAB 4: Material Selector */}
         {activeTab === 'Material Selector' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-1 space-y-6">
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-1 space-y-5">
               <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Application Requirements</h2>
               
               <div>
@@ -713,10 +740,26 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
 
               <div>
                 <div className="flex justify-between text-sm mb-1">
-                  <label className="text-[#94A3B8]">Min Operating Temp</label>
-                  <span className="text-[#F1F5F9] font-medium">{selCriteria.maxTemp} °C</span>
+                  <label className="text-[#94A3B8]">Min Young's Modulus</label>
+                  <span className="text-[#F1F5F9] font-medium">{selCriteria.minYoungs} GPa</span>
                 </div>
-                <input type="range" min="0" max="3000" step="100" value={selCriteria.maxTemp} onChange={e => setSelCriteria({...selCriteria, maxTemp: Number(e.target.value)})} className="w-full accent-[#4A9EFF]" />
+                <input type="range" min="0" max="500" step="10" value={selCriteria.minYoungs} onChange={e => setSelCriteria({...selCriteria, minYoungs: Number(e.target.value)})} className="w-full accent-[#4A9EFF]" />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <label className="text-[#94A3B8]">Min Operating Temp</label>
+                  <span className="text-[#F1F5F9] font-medium">{selCriteria.minMeltingPoint} °C</span>
+                </div>
+                <input type="range" min="0" max="3000" step="100" value={selCriteria.minMeltingPoint} onChange={e => setSelCriteria({...selCriteria, minMeltingPoint: Number(e.target.value)})} className="w-full accent-[#4A9EFF]" />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <label className="text-[#94A3B8]">Min Thermal Cond.</label>
+                  <span className="text-[#F1F5F9] font-medium">{selCriteria.minThermalCond} W/m·K</span>
+                </div>
+                <input type="range" min="0" max="500" step="10" value={selCriteria.minThermalCond} onChange={e => setSelCriteria({...selCriteria, minThermalCond: Number(e.target.value)})} className="w-full accent-[#4A9EFF]" />
               </div>
 
               <div>
@@ -738,9 +781,21 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
             <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-2 flex flex-col">
               <div className="flex justify-between items-center border-b border-[#2D3F50] pb-2 mb-4">
                 <h2 className="text-lg font-bold text-[#F1F5F9]">Recommended Materials</h2>
-                <button className="text-[#4A9EFF] hover:text-blue-400 flex items-center gap-2 text-sm">
-                  <Download size={16} /> Export PDF
-                </button>
+                <div className="flex items-center gap-4">
+                  <select 
+                    value={selCriteria.sortBy}
+                    onChange={e => setSelCriteria({...selCriteria, sortBy: e.target.value})}
+                    className="bg-[#0F1923] border border-[#2D3F50] rounded-md py-1 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm"
+                  >
+                    <option value="match">Sort by Match %</option>
+                    <option value="specificStrength">Sort by Specific Strength</option>
+                    <option value="yieldStrength">Sort by Yield Strength</option>
+                    <option value="density">Sort by Density (Low to High)</option>
+                  </select>
+                  <button className="text-[#4A9EFF] hover:text-blue-400 flex items-center gap-2 text-sm">
+                    <Download size={16} /> Export
+                  </button>
+                </div>
               </div>
               
               <div className="flex-1 overflow-y-auto pr-2 space-y-4">
@@ -755,13 +810,34 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
                           <span className="font-bold text-[#F1F5F9]">{m.name}</span>
                           <span className={`text-sm font-bold ${m.matchPct >= 80 ? 'text-[#22C55E]' : m.matchPct >= 50 ? 'text-[#F59E0B]' : 'text-[#EF4444]'}`}>{m.matchPct}% Match</span>
                         </div>
-                        <div className="h-2 w-full bg-[#1A2634] rounded-full overflow-hidden mb-2">
+                        <div className="h-2 w-full bg-[#1A2634] rounded-full overflow-hidden mb-3">
                           <div className={`h-full rounded-full ${m.matchPct >= 80 ? 'bg-[#22C55E]' : m.matchPct >= 50 ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'}`} style={{ width: `${m.matchPct}%` }}></div>
                         </div>
-                        <div className="flex gap-4 text-xs text-[#94A3B8]">
-                          <span>Yield: {m.yieldStrength} MPa</span>
-                          <span>Density: {m.density} g/cm³</span>
-                          <span>M.P.: {m.meltingPoint} °C</span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-[#94A3B8]">
+                          <div className="bg-[#1A2634] p-2 rounded border border-[#2D3F50]">
+                            <div className="text-[#F1F5F9] font-medium">{m.yieldStrength} MPa</div>
+                            <div>Yield Strength</div>
+                          </div>
+                          <div className="bg-[#1A2634] p-2 rounded border border-[#2D3F50]">
+                            <div className="text-[#F1F5F9] font-medium">{m.density} g/cm³</div>
+                            <div>Density</div>
+                          </div>
+                          <div className="bg-[#1A2634] p-2 rounded border border-[#2D3F50]">
+                            <div className="text-[#F1F5F9] font-medium">{m.specificStrength.toFixed(1)}</div>
+                            <div>Spec. Strength</div>
+                          </div>
+                          <div className="bg-[#1A2634] p-2 rounded border border-[#2D3F50]">
+                            <div className="text-[#F1F5F9] font-medium">{m.youngsModulus} GPa</div>
+                            <div>Stiffness (E)</div>
+                          </div>
+                          <div className="bg-[#1A2634] p-2 rounded border border-[#2D3F50]">
+                            <div className="text-[#F1F5F9] font-medium">{m.meltingPoint} °C</div>
+                            <div>Max Temp</div>
+                          </div>
+                          <div className="bg-[#1A2634] p-2 rounded border border-[#2D3F50]">
+                            <div className="text-[#F1F5F9] font-medium">{m.thermalConductivity} W/mK</div>
+                            <div>Thermal Cond.</div>
+                          </div>
                         </div>
                       </div>
                     </div>
