@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, ScatterChart, Scatter, AreaChart, Area } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, ScatterChart, Scatter, AreaChart, Area, ComposedChart } from 'recharts';
 import { AlertTriangle, Plus, Trash2, Zap, Thermometer, Magnet, Eye, Box } from 'lucide-react';
 
 const TABS = [
@@ -10,57 +10,70 @@ const TABS = [
   { id: 'Crystal', icon: Box }
 ];
 
-export default function PhysicalProperties({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme, onNavigate }) {
+export default function PhysicalProperties({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme }) {
   const [activeTab, setActiveTab] = useState(TABS[0].id);
-  const [selectedMaterialId, setSelectedMaterialId] = useState('');
-  const [toasts, setToasts] = useState([]);
-
-  const addToast = (message, type = 'success') => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
-  };
-
-  const handleMaterialSelect = (e) => {
-    const id = e.target.value;
-    setSelectedMaterialId(id);
-    if (!id) return;
-    
-    const mat = materials.find(m => m.id === id);
-    if (mat) {
-      setThermalInputs(prev => ({
-        ...prev,
-        k: mat.thermalConductivity || prev.k,
-        rho: (mat.density ? mat.density * 1000 : prev.rho), // Convert g/cm3 to kg/m3
-        tm: mat.meltingPoint || prev.tm
-      }));
-      
-      if (mat.electricalResistivity) {
-        setElecInputs(prev => ({
-          ...prev,
-          rho: mat.electricalResistivity,
-          sigma: mat.electricalResistivity === 0 ? 0 : 1 / mat.electricalResistivity
-        }));
-      }
-      
-      addToast(`Loaded properties for ${mat.name}`);
-    }
-  };
 
   // --- SUB-MODULE 1: Thermal ---
-  const [thermalInputs, setThermalInputs] = useState({ k: 400, cp: 385, rho: 8960, cte: 16.5, tm: 1085, tg: 0 });
+  const [thermalInputs, setThermalInputs] = useState({ 
+    k: 400, cp: 385, rho: 8960, cte: 16.5, tm: 1085, tg: 0,
+    thetaD: 343, // Debye Temp (K)
+    gamma: 2.0, // Gruneisen Parameter
+    E: 110, // Young's Modulus (GPa)
+    nu: 0.34, // Poisson's Ratio
+    sy: 200 // Yield Strength (MPa) for Thermal Shock
+  });
+  
   const [kVsTData, setKVsTData] = useState([
     { id: 1, temp: 20, k: 401 },
     { id: 2, temp: 100, k: 393 },
-    { id: 3, temp: 300, k: 379 }
+    { id: 3, temp: 300, k: 379 },
+    { id: 4, temp: 500, k: 370 },
+    { id: 5, temp: 800, k: 350 }
   ]);
   const [newKPoint, setNewKPoint] = useState({ temp: '', k: '' });
 
-  const thermalDiffusivity = useMemo(() => {
-    const { k, cp, rho } = thermalInputs;
-    if (!k || !cp || !rho || cp <= 0 || rho <= 0) return 'N/A';
-    return (k / (rho * cp)).toExponential(2);
-  }, [thermalInputs]);
+  const thermalAnalysis = useMemo(() => {
+    const { k, cp, rho, E, nu, sy, cte } = thermalInputs;
+    
+    // Thermal Diffusivity: alpha = k / (rho * cp)
+    const alpha = (k / (rho * cp)).toExponential(2);
+
+    // Thermal Shock Resistance (R_TS)
+    // R_TS = (sigma_f * k * (1 - nu)) / (E * alpha_cte)
+    // sigma_f ~ sy (Yield Strength) for metals, or Fracture Strength for ceramics
+    // E in GPa -> Pa, sy in MPa -> Pa, cte in 1e-6/K -> 1/K
+    const R_TS = (sy * 1e6 * k * (1 - nu)) / (E * 1e9 * cte * 1e-6);
+
+    // Fit k(T) = A + B/T + C*T
+    // Simple least squares or just interpolation for visualization?
+    // Let's do a polynomial fit k(T) = a + bT + cT^2 for simplicity in visualization
+    // Or better, just sort and connect data points for now, and add a theoretical curve
+    // Theoretical curve for metals: k ~ constant (above Debye)
+    // Theoretical curve for dielectrics: k ~ 1/T (Umklapp)
+    
+    // Let's generate a "Fitted" curve based on the data points using simple regression
+    // Linear regression k = m*T + c for simplicity if data is sparse
+    const n = kVsTData.length;
+    let sX = 0, sY = 0, sXY = 0, sXX = 0;
+    kVsTData.forEach(p => {
+      sX += p.temp;
+      sY += p.k;
+      sXY += p.temp * p.k;
+      sXX += p.temp * p.temp;
+    });
+    const slope = (n * sXY - sX * sY) / (n * sXX - sX * sX);
+    const intercept = (sY - slope * sX) / n;
+
+    const fitData = [];
+    const tMin = Math.min(...kVsTData.map(d => d.temp));
+    const tMax = Math.max(...kVsTData.map(d => d.temp));
+    for (let t = tMin - 50; t <= tMax + 50; t += 50) {
+       if (t < 0) continue;
+       fitData.push({ temp: t, kFit: slope * t + intercept });
+    }
+
+    return { alpha, R_TS: R_TS.toFixed(0), fitData };
+  }, [thermalInputs, kVsTData]);
 
   const addKPoint = () => {
     if (newKPoint.temp && newKPoint.k) {
@@ -159,8 +172,6 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
     else if (sys === 'HCP') { n = 6; apf = 0.74; }
     else if (sys === 'DC') { n = 8; apf = 0.34; }
 
-    if (a <= 0 || m <= 0 || (sys === 'HCP' && c <= 0)) return { n, apf, rho: 'N/A' };
-
     // Volume calculation (simplified for cubic/hex)
     let v = 0;
     if (sys === 'HCP') {
@@ -218,33 +229,9 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
 
   return (
     <div className="p-6 h-full flex flex-col gap-6 overflow-y-auto">
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-        {toasts.map(t => (
-          <div key={t.id} className={`text-white px-4 py-3 rounded-md shadow-lg flex items-center justify-between gap-4 min-w-[300px] ${t.type === 'error' ? 'bg-[#EF4444]' : 'bg-[#22C55E]'}`}>
-            <span>{t.message}</span>
-          </div>
-        ))}
-      </div>
-
       <div className="bg-[#1A2634] p-4 rounded-lg border border-[#2D3F50] shadow-lg">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-[#F1F5F9]">Physical Properties</h1>
-            <p className="text-[#94A3B8] text-sm mt-1">Thermal, electrical, magnetic, optical, and crystallographic analysis</p>
-          </div>
-          <div className="w-full md:w-64">
-            <select 
-              value={selectedMaterialId}
-              onChange={handleMaterialSelect}
-              className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm"
-            >
-              <option value="">-- Load from Database --</option>
-              {materials.map(m => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <h1 className="text-2xl font-bold text-[#F1F5F9]">Physical Properties</h1>
+        <p className="text-[#94A3B8] text-sm mt-1">Thermal, electrical, magnetic, optical, and crystallographic analysis</p>
         
         <div className="flex overflow-x-auto gap-2 mt-6 pb-2 border-b border-[#2D3F50] scrollbar-hide">
           {TABS.map(tab => {
@@ -267,25 +254,49 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-1 space-y-4">
             <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Thermal Parameters</h2>
-            {Object.entries({ k: 'Thermal Cond. k (W/m·K)', cp: 'Specific Heat Cp (J/kg·K)', rho: 'Density ρ (kg/m³)', cte: 'CTE (10⁻⁶/K)', tm: 'Melting Point (°C)', tg: 'Glass Transition (°C)' }).map(([key, label]) => (
-              <div key={key}>
-                <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
-                <input 
-                  type="number" 
-                  min={key === 'cp' || key === 'rho' ? "0.000001" : undefined}
-                  step="any"
-                  value={thermalInputs[key]} 
-                  onChange={e => setThermalInputs({...thermalInputs, [key]: Number(e.target.value)})}
-                  className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
-                />
-              </div>
-            ))}
             
-            <div className="mt-6 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md">
-              <h3 className="text-sm text-[#94A3B8] mb-2">Thermal Diffusivity (α)</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {Object.entries({ k: 'Thermal Cond. k (W/m·K)', cp: 'Specific Heat Cp (J/kg·K)', rho: 'Density ρ (kg/m³)', cte: 'CTE (10⁻⁶/K)', tm: 'Melting Point (°C)', tg: 'Glass Transition (°C)' }).map(([key, label]) => (
+                <div key={key}>
+                  <label className="block text-xs text-[#94A3B8] mb-1">{label}</label>
+                  <input 
+                    type="number" 
+                    step="any"
+                    value={thermalInputs[key]} 
+                    onChange={e => setThermalInputs({...thermalInputs, [key]: Number(e.target.value)})}
+                    className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-4 border-t border-[#2D3F50]">
+              <h3 className="text-sm font-medium text-[#4A9EFF] mb-3">Advanced Parameters</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {Object.entries({ thetaD: 'Debye Temp θD (K)', gamma: 'Gruneisen γ', E: 'Young\'s Mod. E (GPa)', nu: 'Poisson\'s Ratio ν', sy: 'Yield Strength (MPa)' }).map(([key, label]) => (
+                  <div key={key}>
+                    <label className="block text-xs text-[#94A3B8] mb-1">{label}</label>
+                    <input 
+                      type="number" 
+                      step="any"
+                      value={thermalInputs[key]} 
+                      onChange={e => setThermalInputs({...thermalInputs, [key]: Number(e.target.value)})}
+                      className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="mt-6 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md space-y-2">
+              <h3 className="text-sm text-[#94A3B8] mb-2">Calculated Properties</h3>
               <div className="flex justify-between items-center">
-                <span className="text-[#F1F5F9]">α = k / (ρ × Cp)</span>
-                <span className="font-bold text-[#4A9EFF]">{thermalDiffusivity} m²/s</span>
+                <span className="text-[#F1F5F9] text-sm">Diffusivity (α):</span>
+                <span className="font-bold text-[#4A9EFF]">{thermalAnalysis.alpha} m²/s</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[#F1F5F9] text-sm">Shock Res. (R_TS):</span>
+                <span className="font-bold text-[#F59E0B]">{thermalAnalysis.R_TS} W/m</span>
               </div>
             </div>
           </div>
@@ -299,15 +310,16 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
             </div>
             <div className="flex-1 min-h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={kVsTData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                <ComposedChart margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
                   <XAxis dataKey="temp" type="number" domain={['auto', 'auto']} stroke="#94A3B8" label={{ value: 'Temperature (°C)', position: 'bottom', fill: '#94A3B8' }} />
                   <YAxis stroke="#94A3B8" label={{ value: 'Thermal Cond. (W/m·K)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
                   <Tooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} />
                   <ReferenceLine y={100} stroke="#22C55E" strokeDasharray="3 3" label={{ position: 'insideTopLeft', value: 'Good Conductor', fill: '#22C55E', fontSize: 12 }} />
                   <ReferenceLine y={1} stroke="#EF4444" strokeDasharray="3 3" label={{ position: 'insideBottomLeft', value: 'Insulator', fill: '#EF4444', fontSize: 12 }} />
-                  <Line type="monotone" dataKey="k" stroke="#F59E0B" strokeWidth={3} dot={{ r: 4, fill: '#F59E0B' }} />
-                </LineChart>
+                  <Line data={thermalAnalysis.fitData} type="monotone" dataKey="kFit" stroke="#4A9EFF" strokeWidth={2} dot={false} name="Fit" />
+                  <Scatter data={kVsTData} dataKey="k" fill="#F59E0B" name="Data Points" />
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           </div>
@@ -326,19 +338,19 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-[#94A3B8] mb-1">Resistivity ρ (Ω·m)</label>
-                <input type="number" min="0" step="any" value={elecInputs.rho} onChange={e => handleElecChange('rho', e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                <input type="number" step="any" value={elecInputs.rho} onChange={e => handleElecChange('rho', e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
               </div>
               <div>
                 <label className="block text-sm text-[#94A3B8] mb-1">Conductivity σ (S/m)</label>
-                <input type="number" min="0" step="any" value={elecInputs.sigma} onChange={e => handleElecChange('sigma', e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                <input type="number" step="any" value={elecInputs.sigma} onChange={e => handleElecChange('sigma', e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
               </div>
               <div>
                 <label className="block text-sm text-[#94A3B8] mb-1">Dielectric Constant (εr)</label>
-                <input type="number" min="1" step="any" value={elecInputs.er} onChange={e => handleElecChange('er', e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                <input type="number" step="any" value={elecInputs.er} onChange={e => handleElecChange('er', e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
               </div>
               <div>
                 <label className="block text-sm text-[#94A3B8] mb-1">Breakdown Volts (kV/mm)</label>
-                <input type="number" min="0" step="any" value={elecInputs.vbd} onChange={e => handleElecChange('vbd', e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                <input type="number" step="any" value={elecInputs.vbd} onChange={e => handleElecChange('vbd', e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
               </div>
             </div>
 
@@ -388,7 +400,7 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
             {Object.entries({ ur: 'Relative Permeability (μr)', ms: 'Saturation Mag. Ms (A/m)', hc: 'Coercivity Hc (A/m)', br: 'Remanence Br (T)' }).map(([key, label]) => (
               <div key={key}>
                 <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
-                <input type="number" min={key === 'ur' ? "1" : "0"} step="any" value={magInputs[key]} onChange={e => setMagInputs({...magInputs, [key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                <input type="number" step="any" value={magInputs[key]} onChange={e => setMagInputs({...magInputs, [key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
               </div>
             ))}
             <div className="mt-6 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md text-center">
@@ -434,7 +446,7 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
               {Object.entries({ n: 'Refractive Index (n)', k: 'Extinction Coeff (k)' }).map(([key, label]) => (
                 <div key={key}>
                   <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
-                  <input type="number" min="0" step="any" value={optInputs[key]} onChange={e => setOptInputs({...optInputs, [key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                  <input type="number" step="any" value={optInputs[key]} onChange={e => setOptInputs({...optInputs, [key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
                 </div>
               ))}
             </div>
@@ -443,7 +455,7 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
               {Object.entries({ r: 'Reflectance R (%)', t: 'Transmittance T (%)', a: 'Absorbance A (%)' }).map(([key, label]) => (
                 <div key={key} className="mb-3">
                   <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
-                  <input type="number" min="0" max="100" step="any" value={optInputs[key]} onChange={e => setOptInputs({...optInputs, [key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                  <input type="number" step="any" value={optInputs[key]} onChange={e => setOptInputs({...optInputs, [key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
                 </div>
               ))}
               {!optValid && (
@@ -491,13 +503,13 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
               {Object.entries({ a: 'a (Å)', b: 'b (Å)', c: 'c (Å)', alpha: 'α (°)', beta: 'β (°)', gamma: 'γ (°)' }).map(([key, label]) => (
                 <div key={key}>
                   <label className="block text-xs text-[#94A3B8] mb-1">{label}</label>
-                  <input type="number" min="0.0001" step="any" value={crystInputs[key]} onChange={e => setCrystInputs({...crystInputs, [key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
+                  <input type="number" step="any" value={crystInputs[key]} onChange={e => setCrystInputs({...crystInputs, [key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
                 </div>
               ))}
             </div>
             <div>
               <label className="block text-sm text-[#94A3B8] mb-1">Atomic Mass M (g/mol)</label>
-              <input type="number" min="0.0001" step="any" value={crystInputs.m} onChange={e => setCrystInputs({...crystInputs, m: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              <input type="number" step="any" value={crystInputs.m} onChange={e => setCrystInputs({...crystInputs, m: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
             </div>
           </div>
           
