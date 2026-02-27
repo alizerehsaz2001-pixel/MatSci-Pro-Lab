@@ -128,29 +128,75 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
   }, [ssInputs, ssData]);
 
   // --- SUB-MODULE 2: Hardness ---
-  const [hardInput, setHardInput] = useState({ value: 200, scale: 'HV' });
+  const [hardInput, setHardInput] = useState({ value: 200, scale: 'HV', materialClass: 'Steel' });
   
   const hardnessConversions = useMemo(() => {
     let hv = 0;
-    const { value, scale } = hardInput;
-    // Base conversion to HV
-    if (scale === 'HV') hv = value;
-    else if (scale === 'HB') hv = value / 0.95;
-    else if (scale === 'HRC') hv = (35000 / (100 - value)) - 100;
-    else if (scale === 'HRB') hv = 7000 / (130 - value);
-    else if (scale === 'HK') hv = value / 1.05;
-
-    const isPolymer = scale === 'Shore A' || scale === 'Shore D';
+    const { value, scale, materialClass } = hardInput;
     
+    // 1. Normalize input to Vickers (HV) as the base unit
+    // Note: These are approximate base conversions. ASTM E140 is non-linear.
+    if (scale === 'HV') hv = value;
+    else if (scale === 'HB') hv = value; // HB is roughly equal to HV < 400, diverges slightly above.
+    else if (scale === 'HRC') {
+      // HRC to HV (Steel)
+      if (value < 20) hv = 240; 
+      else hv = 115 * Math.exp(0.024 * value); // Exponential fit for HRC 20-65
+    }
+    else if (scale === 'HRB') hv = 2.6 * value - 110; // Rough linear fit for HRB 40-100
+    else if (scale === 'HK') hv = value; // Knoop is similar to Vickers
+    
+    // Refine HV based on material class if needed (simplified for this demo)
+    
+    const isPolymer = scale === 'Shore A' || scale === 'Shore D';
+    if (isPolymer) {
+      return {
+        HV: 'N/A', HB: 'N/A', HRC: 'N/A', HRB: 'N/A', HK: 'N/A',
+        ShoreA: scale === 'Shore A' ? value : 'N/A',
+        ShoreD: scale === 'Shore D' ? value : 'N/A',
+        UTS_Est: 'N/A',
+        warning: 'Shore scales do not convert to metal hardness scales.'
+      };
+    }
+
+    // 2. Convert HV to other scales using ASTM E140 approximations
+    // Steel is the default standard for most HRC/HRB conversions
+    let hb = hv; // HB ≈ HV
+    let hrc = 0;
+    let hrb = 0;
+    let uts = 0;
+
+    if (materialClass === 'Steel') {
+      // HV to HRC (Steel)
+      if (hv >= 240) hrc = 41.6 * Math.log(hv) - 228; // Logarithmic fit
+      // HV to HRB (Steel)
+      if (hv >= 85 && hv <= 240) hrb = 0.38 * hv + 42;
+      
+      // UTS Estimation (Steel): UTS (MPa) ≈ 3.2 to 3.45 * HB
+      uts = 3.45 * hb;
+    } else if (materialClass === 'Aluminum') {
+      // Aluminum conversions are different
+      // UTS (MPa) ≈ 0.25 * HB (kg/mm2) * 9.81 ?? No, typically UTS (MPa) ~ 3.5 * HB is for steel.
+      // For Al-6061: HB 95 -> UTS 310 (Ratio ~3.26)
+      uts = 3.3 * hb;
+      // Aluminum rarely uses HRC, mostly HRB or HRF.
+      if (hv > 40) hrb = 0.45 * hv + 10; 
+    } else if (materialClass === 'Copper') {
+      uts = 3.5 * hb; // Rough approx
+      if (hv > 40) hrb = 0.4 * hv + 20;
+    }
+
+    // Clamping and formatting
     return {
-      HV: hv > 0 ? Math.round(hv) : 'N/A',
-      HB: hv > 0 ? Math.round(hv * 0.95) : 'N/A',
-      HRC: hv >= 200 ? Math.round(100 - (35000 / (hv + 100))) : 'Out of Range (<20 HRC)',
-      HRB: hv > 50 && hv < 300 ? Math.round(130 - (7000 / hv)) : 'Out of Range',
-      HK: hv > 0 ? Math.round(hv * 1.05) : 'N/A',
-      ShoreA: isPolymer ? (scale === 'Shore A' ? value : 'N/A') : 'Polymer Only',
-      ShoreD: isPolymer ? (scale === 'Shore D' ? value : 'N/A') : 'Polymer Only',
-      warning: isPolymer ? 'Shore scales do not convert to metal hardness scales.' : (hv < 50 || hv > 1000 ? 'Value is outside typical reliable conversion ranges.' : null)
+      HV: Math.round(hv),
+      HB: Math.round(hb),
+      HRC: hrc > 0 && hrc < 70 ? Math.round(hrc) : (hrc >= 70 ? '> 70' : '< 20'),
+      HRB: hrb > 0 && hrb < 100 ? Math.round(hrb) : (hrb >= 100 ? '> 100' : '< 0'),
+      HK: Math.round(hv * 1.05), // Knoop usually slightly higher
+      ShoreA: 'N/A',
+      ShoreD: 'N/A',
+      UTS_Est: Math.round(uts),
+      warning: (hv < 50 || hv > 1000) ? 'Value is outside typical reliable conversion ranges.' : null
     };
   }, [hardInput]);
 
@@ -351,7 +397,7 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
           <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg max-w-3xl mx-auto">
             <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-6">Hardness Converter</h2>
             
-            <div className="flex gap-4 mb-8">
+            <div className="flex flex-col md:flex-row gap-4 mb-8">
               <div className="flex-1">
                 <label className="block text-sm text-[#94A3B8] mb-1">Value</label>
                 <input 
@@ -371,6 +417,16 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                   {['HV', 'HB', 'HRC', 'HRB', 'HK', 'Shore A', 'Shore D'].map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
+              <div className="flex-1">
+                <label className="block text-sm text-[#94A3B8] mb-1">Material Class</label>
+                <select 
+                  value={hardInput.materialClass} 
+                  onChange={e => setHardInput({...hardInput, materialClass: e.target.value})}
+                  className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-lg"
+                >
+                  {['Steel', 'Aluminum', 'Copper'].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
             </div>
 
             {hardnessConversions.warning && (
@@ -380,13 +436,22 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
               </div>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              {Object.entries(hardnessConversions).filter(([k]) => k !== 'warning').map(([scale, val]) => (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {Object.entries(hardnessConversions).filter(([k]) => k !== 'warning' && k !== 'UTS_Est').map(([scale, val]) => (
                 <div key={scale} className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md text-center">
                   <div className="text-[#94A3B8] text-sm mb-1">{scale}</div>
                   <div className={`text-xl font-bold ${typeof val === 'string' && val.includes('Out') ? 'text-[#EF4444] text-sm' : 'text-[#F1F5F9]'}`}>{val}</div>
                 </div>
               ))}
+              
+              {/* Estimated UTS Card */}
+              <div className="col-span-2 sm:col-span-4 bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex items-center justify-between px-8 mt-2">
+                <div>
+                  <div className="text-[#4A9EFF] font-medium">Estimated Tensile Strength (UTS)</div>
+                  <div className="text-xs text-[#94A3B8]">Approximate correlation based on {hardInput.materialClass}</div>
+                </div>
+                <div className="text-2xl font-bold text-[#F1F5F9]">{hardnessConversions.UTS_Est} <span className="text-sm font-normal text-[#94A3B8]">MPa</span></div>
+              </div>
             </div>
           </div>
         )}
