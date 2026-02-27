@@ -448,8 +448,11 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
   }, [critCrackInput]);
 
   // --- SUB-MODULE 6: Calculators ---
+  const [calcMode, setCalcMode] = useState('Elastic'); // 'Elastic', 'Mohr', 'Thermal'
   const [calcInput, setCalcInput] = useState({ E: 200, nu: 0.3, Sy: 250, stress: 150, Kt: 2.5 });
-  
+  const [mohrInput, setMohrInput] = useState({ sigX: 50, sigY: 10, tauXY: 20 });
+  const [thermStressInput, setThermStressInput] = useState({ E: 200, alpha: 23, dT: 50, constraint: 100 });
+
   const calcResults = useMemo(() => {
     const { E, nu, Sy, stress, Kt } = calcInput;
     return {
@@ -459,6 +462,26 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
       MaxStress: (stress * Kt).toFixed(2)
     };
   }, [calcInput]);
+
+  const mohrResults = useMemo(() => {
+    const { sigX, sigY, tauXY } = mohrInput;
+    const avg = (sigX + sigY) / 2;
+    const R = Math.sqrt(Math.pow((sigX - sigY)/2, 2) + Math.pow(tauXY, 2));
+    return {
+      sig1: (avg + R).toFixed(2),
+      sig2: (avg - R).toFixed(2),
+      tauMax: R.toFixed(2),
+      thetaP: ((Math.atan2(2 * tauXY, sigX - sigY) * 180 / Math.PI) / 2).toFixed(2)
+    };
+  }, [mohrInput]);
+
+  const thermResults = useMemo(() => {
+    const { E, alpha, dT, constraint } = thermStressInput;
+    // sigma = E * alpha * dT * (constraint/100)
+    // E in GPa -> MPa (*1000), alpha in 1e-6
+    const stress = (E * 1000) * (alpha * 1e-6) * dT * (constraint / 100);
+    return stress.toFixed(2);
+  }, [thermStressInput]);
 
 
   return (
@@ -998,62 +1021,152 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
         {/* TAB 6: Calculators */}
         {activeTab === 'Calculators' && (
           <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg max-w-4xl mx-auto">
-            <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-6">General Mechanical Calculators</h2>
+            <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Engineering Calculators</h2>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-4">
-                <h3 className="text-[#4A9EFF] font-medium">Inputs</h3>
-                {Object.entries({ E: 'Young\'s Modulus E (GPa)', nu: 'Poisson\'s Ratio ν', Sy: 'Yield Strength (MPa)', stress: 'Applied Stress (MPa)', Kt: 'Stress Concentration Factor Kt' }).map(([key, label]) => (
-                  <div key={key}>
-                    <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
-                    <input 
-                      type="number" 
-                      step="any"
-                      value={calcInput[key]} 
-                      onChange={e => setCalcInput({...calcInput, [key]: Number(e.target.value)})}
-                      className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
-                    />
-                  </div>
-                ))}
-              </div>
+            <div className="flex gap-2 mb-6 border-b border-[#2D3F50] pb-2">
+              {['Elastic', 'Mohr', 'Thermal'].map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setCalcMode(mode)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${calcMode === mode ? 'bg-[#4A9EFF] text-white' : 'text-[#94A3B8] hover:text-[#F1F5F9] hover:bg-[#2D3F50]'}`}
+                >
+                  {mode === 'Elastic' ? 'Elastic Constants' : mode === 'Mohr' ? 'Stress Transformation' : 'Thermal Stress'}
+                </button>
+              ))}
+            </div>
 
-              <div className="space-y-4">
-                <h3 className="text-[#4A9EFF] font-medium">Results</h3>
-                <div className="grid grid-cols-1 gap-4">
-                  <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex justify-between items-center">
-                    <div>
-                      <div className="text-[#F1F5F9] font-medium">Shear Modulus (G)</div>
-                      <div className="text-xs text-[#94A3B8]">G = E / 2(1+ν)</div>
+            {calcMode === 'Elastic' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <h3 className="text-[#4A9EFF] font-medium">Inputs</h3>
+                  {Object.entries({ E: 'Young\'s Modulus E (GPa)', nu: 'Poisson\'s Ratio ν', Sy: 'Yield Strength (MPa)', stress: 'Applied Stress (MPa)', Kt: 'Stress Concentration Factor Kt' }).map(([key, label]) => (
+                    <div key={key}>
+                      <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
+                      <input 
+                        type="number" 
+                        step="any"
+                        value={calcInput[key]} 
+                        onChange={e => setCalcInput({...calcInput, [key]: Number(e.target.value)})}
+                        className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
+                      />
                     </div>
-                    <div className="text-xl font-bold text-[#4A9EFF]">{calcResults.G} GPa</div>
-                  </div>
-                  
-                  <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex justify-between items-center">
-                    <div>
-                      <div className="text-[#F1F5F9] font-medium">Bulk Modulus (K)</div>
-                      <div className="text-xs text-[#94A3B8]">K = E / 3(1-2ν)</div>
-                    </div>
-                    <div className="text-xl font-bold text-[#4A9EFF]">{calcResults.K} GPa</div>
-                  </div>
+                  ))}
+                </div>
 
-                  <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex justify-between items-center">
-                    <div>
-                      <div className="text-[#F1F5F9] font-medium">Safety Factor</div>
-                      <div className="text-xs text-[#94A3B8]">SF = Sy / Stress</div>
+                <div className="space-y-4">
+                  <h3 className="text-[#4A9EFF] font-medium">Results</h3>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex justify-between items-center">
+                      <div>
+                        <div className="text-[#F1F5F9] font-medium">Shear Modulus (G)</div>
+                        <div className="text-xs text-[#94A3B8]">G = E / 2(1+ν)</div>
+                      </div>
+                      <div className="text-xl font-bold text-[#4A9EFF]">{calcResults.G} GPa</div>
                     </div>
-                    <div className={`text-xl font-bold ${calcResults.SF >= 1 ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}>{calcResults.SF}</div>
-                  </div>
+                    
+                    <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex justify-between items-center">
+                      <div>
+                        <div className="text-[#F1F5F9] font-medium">Bulk Modulus (K)</div>
+                        <div className="text-xs text-[#94A3B8]">K = E / 3(1-2ν)</div>
+                      </div>
+                      <div className="text-xl font-bold text-[#4A9EFF]">{calcResults.K} GPa</div>
+                    </div>
 
-                  <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex justify-between items-center">
-                    <div>
-                      <div className="text-[#F1F5F9] font-medium">Max Local Stress</div>
-                      <div className="text-xs text-[#94A3B8]">σ_max = Kt * Stress</div>
+                    <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex justify-between items-center">
+                      <div>
+                        <div className="text-[#F1F5F9] font-medium">Safety Factor</div>
+                        <div className="text-xs text-[#94A3B8]">SF = Sy / Stress</div>
+                      </div>
+                      <div className={`text-xl font-bold ${calcResults.SF >= 1 ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}>{calcResults.SF}</div>
                     </div>
-                    <div className="text-xl font-bold text-[#F59E0B]">{calcResults.MaxStress} MPa</div>
+
+                    <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex justify-between items-center">
+                      <div>
+                        <div className="text-[#F1F5F9] font-medium">Max Local Stress</div>
+                        <div className="text-xs text-[#94A3B8]">σ_max = Kt * Stress</div>
+                      </div>
+                      <div className="text-xl font-bold text-[#F59E0B]">{calcResults.MaxStress} MPa</div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
+
+            {calcMode === 'Mohr' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <h3 className="text-[#4A9EFF] font-medium">Stress State Inputs (MPa)</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-[#94A3B8] mb-1">Normal Stress X (σx)</label>
+                      <input type="number" value={mohrInput.sigX} onChange={e => setMohrInput({...mohrInput, sigX: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-[#94A3B8] mb-1">Normal Stress Y (σy)</label>
+                      <input type="number" value={mohrInput.sigY} onChange={e => setMohrInput({...mohrInput, sigY: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-sm text-[#94A3B8] mb-1">Shear Stress XY (τxy)</label>
+                      <input type="number" value={mohrInput.tauXY} onChange={e => setMohrInput({...mohrInput, tauXY: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <h3 className="text-[#4A9EFF] font-medium">Principal Stresses</h3>
+                  <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-[#94A3B8]">Principal Stress σ1</span>
+                      <span className="text-[#F1F5F9] font-bold">{mohrResults.sig1} MPa</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#94A3B8]">Principal Stress σ2</span>
+                      <span className="text-[#F1F5F9] font-bold">{mohrResults.sig2} MPa</span>
+                    </div>
+                    <div className="flex justify-between border-t border-[#2D3F50] pt-2">
+                      <span className="text-[#94A3B8]">Max Shear Stress τmax</span>
+                      <span className="text-[#F59E0B] font-bold">{mohrResults.tauMax} MPa</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#94A3B8]">Principal Angle θp</span>
+                      <span className="text-[#4A9EFF] font-bold">{mohrResults.thetaP}°</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {calcMode === 'Thermal' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <h3 className="text-[#4A9EFF] font-medium">Thermal Inputs</h3>
+                  <div>
+                    <label className="block text-sm text-[#94A3B8] mb-1">Young's Modulus E (GPa)</label>
+                    <input type="number" value={thermStressInput.E} onChange={e => setThermStressInput({...thermStressInput, E: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-[#94A3B8] mb-1">CTE α (10⁻⁶/K)</label>
+                    <input type="number" value={thermStressInput.alpha} onChange={e => setThermStressInput({...thermStressInput, alpha: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-[#94A3B8] mb-1">Temp Change ΔT (°C)</label>
+                    <input type="number" value={thermStressInput.dT} onChange={e => setThermStressInput({...thermStressInput, dT: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-[#94A3B8] mb-1">Constraint (%)</label>
+                    <input type="number" value={thermStressInput.constraint} onChange={e => setThermStressInput({...thermStressInput, constraint: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                    <p className="text-xs text-[#94A3B8] mt-1">100% = Fully Fixed, 0% = Free Expansion</p>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <h3 className="text-[#4A9EFF] font-medium">Thermal Stress</h3>
+                  <div className="bg-[#0F1923] border border-[#2D3F50] p-6 rounded-md text-center flex flex-col items-center justify-center h-48">
+                    <div className="text-sm text-[#94A3B8] mb-2">Induced Thermal Stress</div>
+                    <div className="text-4xl font-bold text-[#EF4444] mb-2">{thermResults} <span className="text-lg text-[#94A3B8]">MPa</span></div>
+                    <div className="text-xs text-[#94A3B8]">σ = E · α · ΔT · Constraint</div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

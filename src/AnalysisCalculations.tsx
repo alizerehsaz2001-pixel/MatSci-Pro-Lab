@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, ScatterChart, Scatter, LineChart, Line, ComposedChart, ReferenceLine } from 'recharts';
-import { Calculator, BarChart2, TrendingUp, Filter, AlertTriangle, Plus, Trash2, ChevronRight, ChevronLeft, CheckCircle, Download } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, ScatterChart, Scatter, LineChart, Line, ComposedChart, ReferenceLine, Area } from 'recharts';
+import { Calculator, BarChart2, TrendingUp, Filter, AlertTriangle, Plus, Trash2, ChevronRight, ChevronLeft, CheckCircle, Download, Upload, X } from 'lucide-react';
 
 const TABS = [
   { id: 'Universal Calculator', icon: Calculator },
@@ -150,8 +150,22 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
   // --- SUB-MODULE 2: Statistics ---
   const [statsText, setStatsText] = useState('450, 460, 445, 455, 470, 440, 465, 452, 458, 448, 520');
   
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target.result;
+      // Try to parse CSV or simple list
+      const cleanText = text.replace(/[\r\n]+/g, ',').replace(/\s+/g, ',');
+      setStatsText(cleanText);
+    };
+    reader.readAsText(file);
+  };
+
   const statsData = useMemo(() => {
-    const vals = statsText.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v)).sort((a, b) => a - b);
+    // Split by comma, newline, or space
+    const vals = statsText.split(/[\n, ]+/).map(v => parseFloat(v.trim())).filter(v => !isNaN(v)).sort((a, b) => a - b);
     if (vals.length === 0) return null;
 
     const n = vals.length;
@@ -164,10 +178,22 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
     const max = vals[n - 1];
     const q1 = vals[Math.floor(n * 0.25)];
     const q3 = vals[Math.floor(n * 0.75)];
+    const iqr = q3 - q1;
 
-    // Histogram bins
-    const binCount = Math.max(5, Math.min(15, Math.ceil(Math.sqrt(n))));
-    const binWidth = (max - min) / binCount || 1;
+    // Skewness & Kurtosis
+    const m3 = vals.reduce((a, b) => a + Math.pow(b - mean, 3), 0) / n;
+    const m4 = vals.reduce((a, b) => a + Math.pow(b - mean, 4), 0) / n;
+    const skewness = m3 / Math.pow(stdDev, 3); // Fisher-Pearson
+    const kurtosis = (m4 / Math.pow(stdDev, 4)) - 3; // Excess Kurtosis
+
+    // Outliers (IQR Method)
+    const lowerBound = q1 - 1.5 * iqr;
+    const upperBound = q3 + 1.5 * iqr;
+    const outliers = vals.filter(v => v < lowerBound || v > upperBound);
+
+    // Histogram bins (Freedman-Diaconis rule or fallback)
+    const binWidth = (2 * iqr) / Math.pow(n, 1/3) || (max - min) / Math.sqrt(n) || 1;
+    const binCount = Math.max(5, Math.ceil((max - min) / binWidth));
     const bins = Array.from({ length: binCount }, (_, i) => ({
       x0: min + i * binWidth,
       x1: min + (i + 1) * binWidth,
@@ -177,7 +203,7 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
 
     vals.forEach(v => {
       const binIdx = Math.min(binCount - 1, Math.floor((v - min) / binWidth));
-      bins[binIdx].count++;
+      if (bins[binIdx]) bins[binIdx].count++;
     });
 
     // Normal curve overlay
@@ -203,30 +229,105 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
       m = num / den;
     }
 
-    return { n, mean, median, stdDev, cov, min, max, range: max - min, q1, q3, chartData, vals, m };
+    return { n, mean, median, stdDev, cov, min, max, range: max - min, q1, q3, iqr, skewness, kurtosis, outliers, lowerBound, upperBound, chartData, vals, m };
   }, [statsText]);
 
   // --- SUB-MODULE 3: Interpolation ---
-  const [interpPoints, setInterpPoints] = useState([
-    { id: 1, x: 10, y: 100 }, { id: 2, x: 20, y: 150 }, { id: 3, x: 30, y: 180 }, { id: 4, x: 40, y: 190 }
-  ]);
+  const [interpText, setInterpText] = useState('10, 100\n20, 150\n30, 180\n40, 190');
   const [interpMethod, setInterpMethod] = useState('poly2');
   const [queryX, setQueryX] = useState('');
 
+  const handleInterpFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target.result;
+      setInterpText(text);
+    };
+    reader.readAsText(file);
+  };
+
   const interpResult = useMemo(() => {
-    if (interpPoints.length < 2) return null;
-    const pts = [...interpPoints].sort((a, b) => a.x - b.x);
+    // Parse text input
+    const pts = interpText.split('\n').map(line => {
+      const parts = line.split(/[,\s]+/).filter(p => p.trim() !== '');
+      if (parts.length >= 2) {
+        const x = parseFloat(parts[0]);
+        const y = parseFloat(parts[1]);
+        return (!isNaN(x) && !isNaN(y)) ? { x, y } : null;
+      }
+      return null;
+    }).filter(p => p !== null).sort((a, b) => a.x - b.x);
+
+    if (pts.length < 2) return null;
+
     let coeffs = [];
-    let degree = 1;
-    
-    if (interpMethod === 'linear') degree = 1;
-    else if (interpMethod === 'poly2') degree = Math.min(2, pts.length - 1);
-    else if (interpMethod === 'poly3') degree = Math.min(3, pts.length - 1);
-    else if (interpMethod === 'poly4') degree = Math.min(4, pts.length - 1);
+    let predict = (x) => 0;
+    let equation = '';
 
-    coeffs = polyFit(pts, degree);
+    // Helper for linear regression on transformed data
+    const linearFit = (X, Y) => {
+      const n = X.length;
+      const sumX = X.reduce((a, b) => a + b, 0);
+      const sumY = Y.reduce((a, b) => a + b, 0);
+      const sumXY = X.reduce((a, b, i) => a + b * Y[i], 0);
+      const sumXX = X.reduce((a, b) => a + b * b, 0);
+      const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+      const intercept = (sumY - slope * sumX) / n;
+      return { slope, intercept };
+    };
 
-    const predict = (x) => coeffs.reduce((sum, c, i) => sum + c * Math.pow(x, i), 0);
+    if (interpMethod.startsWith('poly') || interpMethod === 'linear') {
+      let degree = 1;
+      if (interpMethod === 'linear') degree = 1;
+      else if (interpMethod === 'poly2') degree = Math.min(2, pts.length - 1);
+      else if (interpMethod === 'poly3') degree = Math.min(3, pts.length - 1);
+      else if (interpMethod === 'poly4') degree = Math.min(4, pts.length - 1);
+
+      coeffs = polyFit(pts, degree);
+      predict = (x) => coeffs.reduce((sum, c, i) => sum + c * Math.pow(x, i), 0);
+      
+      equation = 'y = ' + coeffs.map((c, i) => {
+        if (Math.abs(c) < 1e-6) return '';
+        const sign = c >= 0 ? (i === 0 ? '' : ' + ') : ' - ';
+        const term = i === 0 ? '' : (i === 1 ? 'x' : `x^${i}`);
+        return `${sign}${Math.abs(c).toExponential(3)}${term}`;
+      }).reverse().join('');
+    } 
+    else if (interpMethod === 'exp') {
+      // y = a * e^(bx)  => ln(y) = ln(a) + bx
+      // Filter y > 0
+      const validPts = pts.filter(p => p.y > 0);
+      if (validPts.length < 2) return null;
+      const { slope, intercept } = linearFit(validPts.map(p => p.x), validPts.map(p => Math.log(p.y)));
+      const a = Math.exp(intercept);
+      const b = slope;
+      predict = (x) => a * Math.exp(b * x);
+      equation = `y = ${a.toExponential(3)} * e^(${b.toExponential(3)}x)`;
+    }
+    else if (interpMethod === 'power') {
+      // y = a * x^b => ln(y) = ln(a) + b*ln(x)
+      // Filter x > 0, y > 0
+      const validPts = pts.filter(p => p.x > 0 && p.y > 0);
+      if (validPts.length < 2) return null;
+      const { slope, intercept } = linearFit(validPts.map(p => Math.log(p.x)), validPts.map(p => Math.log(p.y)));
+      const a = Math.exp(intercept);
+      const b = slope;
+      predict = (x) => a * Math.pow(x, b);
+      equation = `y = ${a.toExponential(3)} * x^(${b.toExponential(3)})`;
+    }
+    else if (interpMethod === 'log') {
+      // y = a + b*ln(x)
+      // Filter x > 0
+      const validPts = pts.filter(p => p.x > 0);
+      if (validPts.length < 2) return null;
+      const { slope, intercept } = linearFit(validPts.map(p => Math.log(p.x)), validPts.map(p => p.y));
+      const a = intercept;
+      const b = slope;
+      predict = (x) => a + b * Math.log(x);
+      equation = `y = ${a.toExponential(3)} + ${b.toExponential(3)} * ln(x)`;
+    }
 
     // Calculate R2 and RMSE
     const meanY = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
@@ -243,29 +344,31 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
     const curveData = [];
     const minX = pts[0].x;
     const maxX = pts[pts.length - 1].x;
-    const step = (maxX - minX) / 50 || 1;
-    for (let x = minX; x <= maxX; x += step) {
+    const range = maxX - minX;
+    const padding = range * 0.1; // Add 10% padding to graph
+    const startX = minX - padding;
+    const endX = maxX + padding;
+    const step = (endX - startX) / 100;
+    
+    for (let x = startX; x <= endX; x += step) {
       curveData.push({ x, curveY: predict(x) });
     }
-    curveData.push({ x: maxX, curveY: predict(maxX) });
 
     // Combine points and curve for Recharts
     const chartData = [...curveData];
     pts.forEach(p => {
-      const existing = chartData.find(c => Math.abs(c.x - p.x) < 1e-5);
-      if (existing) existing.pointY = p.y;
-      else chartData.push({ x: p.x, pointY: p.y, curveY: predict(p.x) });
+      // Find closest curve point to insert/update for tooltip alignment (optional, but good for scatter)
+      // Actually, Recharts ComposedChart handles scatter independent of line data if we pass separate data props or unified.
+      // Unified is easier for X-axis domain.
+      // We'll just push the points as separate objects with 'pointY'
+      chartData.push({ x: p.x, pointY: p.y });
     });
     chartData.sort((a, b) => a.x - b.x);
 
     const qY = queryX !== '' ? predict(Number(queryX)) : null;
 
-    return { coeffs, r2, rmse, chartData, qY };
-  }, [interpPoints, interpMethod, queryX]);
-
-  const addInterpPoint = () => setInterpPoints(prev => [...prev, { id: Date.now(), x: 0, y: 0 }]);
-  const updateInterpPoint = (id, field, val) => setInterpPoints(prev => prev.map(p => p.id === id ? { ...p, [field]: Number(val) } : p));
-  const removeInterpPoint = (id) => setInterpPoints(prev => prev.filter(p => p.id !== id));
+    return { equation, r2, rmse, chartData, qY, pts };
+  }, [interpText, interpMethod, queryX]);
 
   // --- SUB-MODULE 4: Material Selector ---
   const [selCriteria, setSelCriteria] = useState({ minYield: 0, maxDensity: 20, minTemp: 0, maxTemp: 1000, electrical: 'any' });
@@ -425,21 +528,33 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-1 flex flex-col">
               <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Data Input</h2>
-              <p className="text-xs text-[#94A3B8] mb-2">Enter comma-separated numerical values (e.g., test results):</p>
+              <p className="text-xs text-[#94A3B8] mb-2">Enter values (comma, space, or newline separated):</p>
               <textarea 
                 value={statsText}
                 onChange={e => setStatsText(e.target.value)}
                 className="w-full flex-1 min-h-[150px] bg-[#0F1923] border border-[#2D3F50] rounded-md p-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm resize-none mb-4"
               />
+              <div className="flex gap-2 mb-4">
+                <label className="flex-1 bg-[#2D3F50] hover:bg-[#4A9EFF] text-white px-3 py-2 rounded-md text-sm transition-colors cursor-pointer flex items-center justify-center gap-2">
+                  <Upload size={16} /> Import CSV/TXT
+                  <input type="file" accept=".csv,.txt" onChange={handleFileUpload} className="hidden" />
+                </label>
+                <button 
+                  onClick={() => setStatsText('')}
+                  className="bg-[#EF4444]/20 hover:bg-[#EF4444]/40 text-[#EF4444] px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={16} /> Clear
+                </button>
+              </div>
               {statsData && (
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]"><span className="text-[#94A3B8]">Count (n):</span> <span className="float-right font-bold">{statsData.n}</span></div>
                   <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]"><span className="text-[#94A3B8]">Mean:</span> <span className="float-right font-bold text-[#4A9EFF]">{statsData.mean.toFixed(2)}</span></div>
                   <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]"><span className="text-[#94A3B8]">Median:</span> <span className="float-right font-bold">{statsData.median.toFixed(2)}</span></div>
                   <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]"><span className="text-[#94A3B8]">Std Dev:</span> <span className="float-right font-bold text-[#F59E0B]">{statsData.stdDev.toFixed(2)}</span></div>
-                  <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]"><span className="text-[#94A3B8]">CoV (%):</span> <span className="float-right font-bold">{statsData.cov.toFixed(1)}%</span></div>
-                  <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]"><span className="text-[#94A3B8]">Range:</span> <span className="float-right font-bold">{statsData.range.toFixed(2)}</span></div>
-                  <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]"><span className="text-[#94A3B8]">Min / Max:</span> <span className="float-right font-bold">{statsData.min} / {statsData.max}</span></div>
+                  <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]"><span className="text-[#94A3B8]">Skewness:</span> <span className="float-right font-bold">{statsData.skewness.toFixed(2)}</span></div>
+                  <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]"><span className="text-[#94A3B8]">Kurtosis:</span> <span className="float-right font-bold">{statsData.kurtosis.toFixed(2)}</span></div>
+                  <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]"><span className="text-[#94A3B8]">IQR:</span> <span className="float-right font-bold">{statsData.iqr.toFixed(2)}</span></div>
                   <div className="bg-[#0F1923] p-2 rounded border border-[#2D3F50]"><span className="text-[#94A3B8]">Weibull m:</span> <span className="float-right font-bold text-[#22C55E]">{statsData.m.toFixed(2)}</span></div>
                 </div>
               )}
@@ -463,10 +578,13 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
                     </ResponsiveContainer>
                   </div>
                   <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
-                    <h3 className="text-sm font-medium text-[#F1F5F9] mb-2">Outlier Detection (±2σ)</h3>
+                    <h3 className="text-sm font-medium text-[#F1F5F9] mb-2 flex justify-between">
+                      <span>Outlier Detection (IQR Method)</span>
+                      <span className="text-xs text-[#94A3B8] font-normal">Bounds: [{statsData.lowerBound.toFixed(2)}, {statsData.upperBound.toFixed(2)}]</span>
+                    </h3>
                     <div className="flex flex-wrap gap-2">
                       {statsData.vals.map((v, i) => {
-                        const isOutlier = Math.abs(v - statsData.mean) > 2 * statsData.stdDev;
+                        const isOutlier = v < statsData.lowerBound || v > statsData.upperBound;
                         return (
                           <span key={i} className={`px-2 py-1 rounded text-xs font-medium ${isOutlier ? 'bg-[#EF4444]/20 text-[#EF4444] border border-[#EF4444]/50' : 'bg-[#1A2634] text-[#94A3B8] border border-[#2D3F50]'}`}>
                             {v}
@@ -474,6 +592,11 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
                         );
                       })}
                     </div>
+                    {statsData.outliers.length > 0 && (
+                      <div className="mt-2 text-xs text-[#EF4444]">
+                        Found {statsData.outliers.length} potential outliers.
+                      </div>
+                    )}
                   </div>
                 </>
               ) : (
@@ -487,27 +610,36 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
         {activeTab === 'Interpolation' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-1 flex flex-col">
-              <div className="flex justify-between items-center border-b border-[#2D3F50] pb-2 mb-4">
-                <h2 className="text-lg font-bold text-[#F1F5F9]">Data Points</h2>
-                <button onClick={addInterpPoint} className="text-[#4A9EFF] hover:text-blue-400 flex items-center gap-1 text-sm"><Plus size={16} /> Add</button>
-              </div>
-              <div className="space-y-2 mb-6 max-h-48 overflow-y-auto pr-2">
-                {interpPoints.map((p, i) => (
-                  <div key={p.id} className="flex gap-2 items-center">
-                    <span className="text-[#94A3B8] text-xs w-4">{i+1}.</span>
-                    <input type="number" value={p.x} onChange={e => updateInterpPoint(p.id, 'x', e.target.value)} placeholder="X" className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
-                    <input type="number" value={p.y} onChange={e => updateInterpPoint(p.id, 'y', e.target.value)} placeholder="Y" className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
-                    <button onClick={() => removeInterpPoint(p.id)} className="text-[#EF4444] hover:text-red-400"><Trash2 size={16} /></button>
-                  </div>
-                ))}
+              <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Data Points</h2>
+              <p className="text-xs text-[#94A3B8] mb-2">Enter X, Y pairs (one per line or comma separated):</p>
+              <textarea 
+                value={interpText}
+                onChange={e => setInterpText(e.target.value)}
+                className="w-full flex-1 min-h-[150px] bg-[#0F1923] border border-[#2D3F50] rounded-md p-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm resize-none mb-4 font-mono"
+                placeholder="10, 100&#10;20, 150"
+              />
+              <div className="flex gap-2 mb-6">
+                <label className="flex-1 bg-[#2D3F50] hover:bg-[#4A9EFF] text-white px-3 py-2 rounded-md text-sm transition-colors cursor-pointer flex items-center justify-center gap-2">
+                  <Upload size={16} /> Import CSV
+                  <input type="file" accept=".csv,.txt" onChange={handleInterpFileUpload} className="hidden" />
+                </label>
+                <button 
+                  onClick={() => setInterpText('')}
+                  className="bg-[#EF4444]/20 hover:bg-[#EF4444]/40 text-[#EF4444] px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={16} /> Clear
+                </button>
               </div>
               
               <h3 className="text-sm font-medium text-[#F1F5F9] mb-2">Method & Prediction</h3>
               <select value={interpMethod} onChange={e => setInterpMethod(e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm mb-4">
-                <option value="linear">Linear Regression</option>
+                <option value="linear">Linear Regression (y = mx + c)</option>
                 <option value="poly2">Polynomial (Degree 2)</option>
                 <option value="poly3">Polynomial (Degree 3)</option>
                 <option value="poly4">Polynomial (Degree 4)</option>
+                <option value="exp">Exponential (y = ae^bx)</option>
+                <option value="power">Power Law (y = ax^b)</option>
+                <option value="log">Logarithmic (y = a + b ln(x))</option>
               </select>
               
               <div className="flex gap-2 items-end">
@@ -517,7 +649,7 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
                 </div>
                 <div className="flex-1 bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-center">
                   <div className="text-xs text-[#94A3B8] mb-1">Predicted Y</div>
-                  <div className="font-bold text-[#4A9EFF] text-sm">{interpResult?.qY !== null ? interpResult.qY.toFixed(4) : '--'}</div>
+                  <div className="font-bold text-[#4A9EFF] text-sm">{interpResult?.qY !== null && interpResult?.qY !== undefined ? interpResult.qY.toFixed(4) : '--'}</div>
                 </div>
               </div>
             </div>
@@ -526,7 +658,8 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
               <div className="flex justify-between items-center border-b border-[#2D3F50] pb-2 mb-4">
                 <h2 className="text-lg font-bold text-[#F1F5F9]">Curve Fit</h2>
                 {interpResult && (
-                  <div className="flex gap-4 text-sm">
+                  <div className="flex gap-4 text-sm items-center">
+                    <span className="text-[#94A3B8] hidden md:inline font-mono text-xs bg-[#0F1923] px-2 py-1 rounded border border-[#2D3F50]">{interpResult.equation}</span>
                     <span className="text-[#94A3B8]">R²: <span className="text-[#22C55E] font-medium">{interpResult.r2.toFixed(4)}</span></span>
                     <span className="text-[#94A3B8]">RMSE: <span className="text-[#F1F5F9] font-medium">{interpResult.rmse.toFixed(4)}</span></span>
                   </div>
@@ -541,7 +674,7 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
                       <YAxis stroke="#94A3B8" domain={['auto', 'auto']} />
                       <RechartsTooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} />
                       <Legend />
-                      <Line type="monotone" dataKey="curveY" name="Fitted Curve" stroke="#4A9EFF" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="curveY" name="Fitted Curve" stroke="#4A9EFF" strokeWidth={2} dot={false} activeDot={false} />
                       <Scatter dataKey="pointY" name="Data Points" fill="#F59E0B" />
                       {queryX !== '' && interpResult.qY !== null && (
                         <ReferenceLine x={Number(queryX)} stroke="#22C55E" strokeDasharray="3 3" label={{ position: 'top', value: 'Query', fill: '#22C55E', fontSize: 12 }} />
@@ -549,7 +682,7 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
                     </ComposedChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="h-full flex items-center justify-center text-[#94A3B8]">Need at least 2 data points.</div>
+                  <div className="h-full flex items-center justify-center text-[#94A3B8]">Need at least 2 valid data points (X, Y).</div>
                 )}
               </div>
             </div>
