@@ -201,8 +201,9 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
   }, [hardInput]);
 
   // --- SUB-MODULE 3: Fatigue ---
-  const [fatigueInputs, setFatigueInputs] = useState({ UTS: 600, Se: 300, b: -0.08, applied: 400 });
-  
+  const [fatigueInputs, setFatigueInputs] = useState({ UTS: 600, Sy: 450, Se: 300, b: -0.08, appliedAmp: 200, appliedMean: 50 });
+  const [meanStressModel, setMeanStressModel] = useState('Goodman'); // 'Goodman', 'Gerber', 'Soderberg'
+
   const fatigueData = useMemo(() => {
     const { UTS, Se, b } = fatigueInputs;
     const data = [];
@@ -220,12 +221,46 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
   }, [fatigueInputs]);
 
   const fatigueResult = useMemo(() => {
-    const { UTS, Se, b, applied } = fatigueInputs;
-    if (applied <= Se) return { cycles: 'Infinite', safety: Se / applied };
-    const a = Math.pow(0.9 * UTS, 2) / Se;
-    const N = Math.pow(applied / a, 1 / b);
-    return { cycles: N.toExponential(2), safety: Se / applied };
-  }, [fatigueInputs]);
+    const { UTS, Sy, Se, b, appliedAmp, appliedMean } = fatigueInputs;
+    
+    // 1. Calculate Equivalent Alternating Stress (Seq) based on Mean Stress Correction
+    let Seq = appliedAmp;
+    
+    if (appliedMean > 0) {
+      if (meanStressModel === 'Goodman') {
+        // Goodman: Sa / Se + Sm / UTS = 1/n
+        // Equivalent fully reversed stress: Seq = Sa / (1 - Sm/UTS)
+        Seq = appliedAmp / (1 - (appliedMean / UTS));
+      } else if (meanStressModel === 'Gerber') {
+        // Gerber: Sa / Se + (Sm / UTS)^2 = 1/n
+        // Seq = Sa / (1 - (Sm/UTS)^2)
+        Seq = appliedAmp / (1 - Math.pow(appliedMean / UTS, 2));
+      } else if (meanStressModel === 'Soderberg') {
+        // Soderberg: Sa / Se + Sm / Sy = 1/n
+        // Seq = Sa / (1 - Sm/Sy)
+        Seq = appliedAmp / (1 - (appliedMean / Sy));
+      }
+    }
+
+    // Safety Factor (Infinite Life)
+    // n = Se / Seq
+    const safety = Se / Seq;
+
+    // Life Estimation (if finite)
+    // Seq = a * N^b  => N = (Seq / a)^(1/b)
+    let cycles = 'Infinite';
+    if (Seq > Se) {
+      const a = Math.pow(0.9 * UTS, 2) / Se;
+      const N = Math.pow(Seq / a, 1 / b);
+      cycles = N.toExponential(2);
+    }
+
+    return { 
+      cycles, 
+      safety: Math.max(0, safety), // Prevent negative safety factors if mean stress > UTS
+      Seq: Seq.toFixed(1)
+    };
+  }, [fatigueInputs, meanStressModel]);
 
   // --- SUB-MODULE 4: Creep ---
   const [creepInputs, setCreepInputs] = useState({ e0: 0.01, edot: 0.0005, temp: 600, time: 1000 });
@@ -459,52 +494,98 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
         {/* TAB 3: Fatigue */}
         {activeTab === 'Fatigue' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-1 space-y-4">
+            <div className="lg:col-span-1 bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg space-y-4">
               <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Fatigue Parameters</h2>
-              {Object.entries({ UTS: 'UTS (MPa)', Se: 'Fatigue Limit (MPa)', b: 'Basquin Exponent (b)', applied: 'Applied Stress Amp (MPa)' }).map(([key, label]) => (
-                <div key={key}>
-                  <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
-                  <input 
-                    type="number" 
-                    step="any"
-                    value={fatigueInputs[key]} 
-                    onChange={e => setFatigueInputs({...fatigueInputs, [key]: Number(e.target.value)})}
-                    className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
-                  />
-                </div>
-              ))}
               
-              <div className="mt-6 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md">
-                <h3 className="text-sm text-[#94A3B8] mb-2">Results</h3>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-[#F1F5F9]">Cycles to Failure:</span>
-                  <span className="font-bold text-[#4A9EFF]">{fatigueResult.cycles}</span>
+              <div>
+                <label className="block text-sm text-[#94A3B8] mb-1">Ultimate Tensile Strength (UTS) [MPa]</label>
+                <input type="number" value={fatigueInputs.UTS} onChange={e => setFatigueInputs({...fatigueInputs, UTS: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-[#94A3B8] mb-1">Yield Strength (Sy) [MPa]</label>
+                <input type="number" value={fatigueInputs.Sy} onChange={e => setFatigueInputs({...fatigueInputs, Sy: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-[#94A3B8] mb-1">Endurance Limit (Se) [MPa]</label>
+                <input type="number" value={fatigueInputs.Se} onChange={e => setFatigueInputs({...fatigueInputs, Se: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-[#94A3B8] mb-1">Basquin Exponent (b)</label>
+                <input type="number" step="0.01" value={fatigueInputs.b} onChange={e => setFatigueInputs({...fatigueInputs, b: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              </div>
+
+              <div className="pt-4 border-t border-[#2D3F50]">
+                <h3 className="text-sm font-medium text-[#4A9EFF] mb-3">Loading Conditions</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-[#94A3B8] mb-1">Alternating Stress (σa)</label>
+                    <input type="number" value={fatigueInputs.appliedAmp} onChange={e => setFatigueInputs({...fatigueInputs, appliedAmp: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#94A3B8] mb-1">Mean Stress (σm)</label>
+                    <input type="number" value={fatigueInputs.appliedMean} onChange={e => setFatigueInputs({...fatigueInputs, appliedMean: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                  </div>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[#F1F5F9]">Safety Factor:</span>
-                  <span className={`font-bold ${fatigueResult.safety >= 1 ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}>
-                    {fatigueResult.safety.toFixed(2)}
-                  </span>
-                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-[#94A3B8] mb-1">Mean Stress Correction Model</label>
+                <select 
+                  value={meanStressModel} 
+                  onChange={e => setMeanStressModel(e.target.value)}
+                  className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none"
+                >
+                  <option value="Goodman">Goodman (Brittle/Conservative)</option>
+                  <option value="Gerber">Gerber (Ductile)</option>
+                  <option value="Soderberg">Soderberg (Yield-based)</option>
+                </select>
               </div>
             </div>
-            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-2 flex flex-col">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-bold text-[#F1F5F9]">S-N Curve (Wöhler)</h2>
-                <button onClick={() => exportChart('sn-chart', 'sn-curve')} className="text-[#4A9EFF] hover:text-blue-400 flex items-center gap-2 text-sm">
-                  <Download size={16} /> Export PNG
-                </button>
+
+            <div className="lg:col-span-2 flex flex-col gap-6">
+              <div className="bg-[#1A2634] p-4 rounded-lg border border-[#2D3F50] shadow-lg h-80">
+                 <h3 className="text-sm font-medium text-[#94A3B8] mb-4 text-center">S-N Curve (Stress vs Cycles)</h3>
+                 <ResponsiveContainer width="100%" height="100%">
+                   <LineChart data={fatigueData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
+                     <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
+                     <XAxis 
+                       dataKey="cycles" 
+                       scale="log" 
+                       domain={['auto', 'auto']} 
+                       type="number" 
+                       tickFormatter={(tick) => tick.toExponential(0)} 
+                       stroke="#94A3B8"
+                       label={{ value: 'Cycles to Failure (N)', position: 'bottom', offset: 0, fill: '#94A3B8' }}
+                     />
+                     <YAxis stroke="#94A3B8" label={{ value: 'Stress Amplitude (MPa)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
+                     <Tooltip 
+                       contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }}
+                       labelFormatter={(label) => `Cycles: ${Number(label).toExponential(2)}`} 
+                     />
+                     <Legend verticalAlign="top" height={36}/>
+                     <Line type="monotone" dataKey="stress" stroke="#F59E0B" strokeWidth={2} dot={false} name="Fatigue Strength" />
+                   </LineChart>
+                 </ResponsiveContainer>
               </div>
-              <div id="sn-chart" className="flex-1 min-h-[400px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={fatigueData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                    <XAxis dataKey="cycles" scale="log" domain={['auto', 'auto']} type="number" stroke="#94A3B8" label={{ value: 'Cycles to Failure (N)', position: 'bottom', fill: '#94A3B8' }} tickFormatter={(val) => `10^${Math.round(Math.log10(val))}`} />
-                    <YAxis stroke="#94A3B8" domain={[0, 'auto']} label={{ value: 'Stress Amplitude (MPa)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
-                    <Tooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} labelFormatter={(val) => `Cycles: ${val.toExponential(2)}`} formatter={(val) => [val.toFixed(2), 'Stress']} />
-                    <Line type="monotone" dataKey="stress" stroke="#F59E0B" strokeWidth={3} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md text-center">
+                  <div className="text-[#94A3B8] text-sm mb-1">Equivalent Stress (Seq)</div>
+                  <div className="text-2xl font-bold text-[#F1F5F9]">{fatigueResult.Seq} <span className="text-sm font-normal text-[#94A3B8]">MPa</span></div>
+                  <div className="text-xs text-[#94A3B8] mt-1">Corrected for Mean Stress</div>
+                </div>
+                <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md text-center">
+                  <div className="text-[#94A3B8] text-sm mb-1">Predicted Life</div>
+                  <div className="text-2xl font-bold text-[#4A9EFF]">{fatigueResult.cycles}</div>
+                  <div className="text-xs text-[#94A3B8] mt-1">Cycles</div>
+                </div>
+                <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md text-center">
+                  <div className="text-[#94A3B8] text-sm mb-1">Safety Factor</div>
+                  <div className={`text-2xl font-bold ${fatigueResult.safety > 1 ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}>
+                    {fatigueResult.safety.toFixed(2)}
+                  </div>
+                  <div className="text-xs text-[#94A3B8] mt-1">Based on Endurance Limit</div>
+                </div>
               </div>
             </div>
           </div>
