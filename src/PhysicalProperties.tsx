@@ -451,6 +451,28 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
                 }
             }
         });
+    } else if (sys === 'HCP') {
+        // HCP d-spacing: 1/d^2 = 4/3 * (h^2 + hk + k^2) / a^2 + l^2 / c^2
+        const hkls = [
+            [1,0,0], [0,0,2], [1,0,1], [1,0,2], [1,1,0], [1,0,3], [2,0,0], [1,1,2], [2,0,1]
+        ];
+        hkls.forEach(([h, k, l]) => {
+             const term1 = (4/3) * (h*h + h*k + k*k) / (a*a);
+             const term2 = (l*l) / (c*c);
+             const d = 1 / Math.sqrt(term1 + term2);
+             
+             if (lambda < 2*d) {
+                 const theta = Math.asin(lambda / (2*d));
+                 const twoTheta = 2 * theta * (180 / Math.PI);
+                 const intensity = 100 * Math.exp(-twoTheta / 100); 
+                 peaks.push({ 
+                     angle: twoTheta.toFixed(1), 
+                     intensity: intensity,
+                     label: `(${h}${k}${l})`,
+                     d: d.toFixed(3)
+                 });
+             }
+        });
     }
 
     return { 
@@ -467,36 +489,87 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
     // Simple 2D SVG representation of 3D unit cells
     return (
       <svg viewBox="0 0 100 100" className="w-full h-full max-w-[200px] mx-auto">
-        {/* Base Cube */}
-        <polygon points="20,80 80,80 80,20 20,20" fill="none" stroke="#2D3F50" strokeWidth="2" />
-        <polygon points="30,70 90,70 90,10 30,10" fill="none" stroke="#2D3F50" strokeWidth="2" />
-        <line x1="20" y1="80" x2="30" y2="70" stroke="#2D3F50" strokeWidth="2" />
-        <line x1="80" y1="80" x2="90" y2="70" stroke="#2D3F50" strokeWidth="2" />
-        <line x1="80" y1="20" x2="90" y2="10" stroke="#2D3F50" strokeWidth="2" />
-        <line x1="20" y1="20" x2="30" y2="10" stroke="#2D3F50" strokeWidth="2" />
-
-        {/* Atoms */}
-        {/* Corners (All systems) */}
-        <circle cx="20" cy="80" r="4" fill="#4A9EFF" />
-        <circle cx="80" cy="80" r="4" fill="#4A9EFF" />
-        <circle cx="80" cy="20" r="4" fill="#4A9EFF" />
-        <circle cx="20" cy="20" r="4" fill="#4A9EFF" />
-        <circle cx="30" cy="70" r="4" fill="#4A9EFF" />
-        <circle cx="90" cy="70" r="4" fill="#4A9EFF" />
-        <circle cx="90" cy="10" r="4" fill="#4A9EFF" />
-        <circle cx="30" cy="10" r="4" fill="#4A9EFF" />
+        {/* Base Cube for Cubic Systems */}
+        {['SC', 'BCC', 'FCC', 'DC'].includes(sys) && (
+          <>
+            <polygon points="20,80 80,80 80,20 20,20" fill="none" stroke="#2D3F50" strokeWidth="2" />
+            <polygon points="30,70 90,70 90,10 30,10" fill="none" stroke="#2D3F50" strokeWidth="2" />
+            <line x1="20" y1="80" x2="30" y2="70" stroke="#2D3F50" strokeWidth="2" />
+            <line x1="80" y1="80" x2="90" y2="70" stroke="#2D3F50" strokeWidth="2" />
+            <line x1="80" y1="20" x2="90" y2="10" stroke="#2D3F50" strokeWidth="2" />
+            <line x1="20" y1="20" x2="30" y2="10" stroke="#2D3F50" strokeWidth="2" />
+            
+            {/* Corners (All Cubic) */}
+            <circle cx="20" cy="80" r="4" fill="#4A9EFF" />
+            <circle cx="80" cy="80" r="4" fill="#4A9EFF" />
+            <circle cx="80" cy="20" r="4" fill="#4A9EFF" />
+            <circle cx="20" cy="20" r="4" fill="#4A9EFF" />
+            <circle cx="30" cy="70" r="4" fill="#4A9EFF" />
+            <circle cx="90" cy="70" r="4" fill="#4A9EFF" />
+            <circle cx="90" cy="10" r="4" fill="#4A9EFF" />
+            <circle cx="30" cy="10" r="4" fill="#4A9EFF" />
+          </>
+        )}
 
         {/* Body Center (BCC) */}
         {sys === 'BCC' && <circle cx="55" cy="45" r="5" fill="#F59E0B" />}
 
-        {/* Face Centers (FCC) */}
-        {sys === 'FCC' && (
+        {/* Face Centers (FCC & DC) */}
+        {(sys === 'FCC' || sys === 'DC') && (
           <>
             <circle cx="50" cy="80" r="4" fill="#F59E0B" /> {/* Bottom */}
             <circle cx="50" cy="20" r="4" fill="#F59E0B" /> {/* Top */}
             <circle cx="20" cy="50" r="4" fill="#F59E0B" /> {/* Left */}
             <circle cx="80" cy="50" r="4" fill="#F59E0B" /> {/* Right */}
             <circle cx="55" cy="45" r="4" fill="#F59E0B" /> {/* Front/Back approx */}
+          </>
+        )}
+
+        {/* Diamond Cubic (DC) - Interior Tetrahedral */}
+        {sys === 'DC' && (
+          <>
+            <circle cx="35" cy="65" r="3" fill="#EF4444" />
+            <circle cx="75" cy="65" r="3" fill="#EF4444" />
+            <circle cx="35" cy="35" r="3" fill="#EF4444" />
+            <circle cx="75" cy="35" r="3" fill="#EF4444" />
+          </>
+        )}
+
+        {/* HCP - Hexagonal Prism */}
+        {sys === 'HCP' && (
+          <>
+             {/* Draw Hexagon Base */}
+             <polygon points="30,80 70,80 90,60 70,40 30,40 10,60" fill="none" stroke="#2D3F50" strokeWidth="2" />
+             {/* Draw Top Hexagon */}
+             <polygon points="30,50 70,50 90,30 70,10 30,10 10,30" fill="none" stroke="#2D3F50" strokeWidth="2" />
+             {/* Vertical Lines */}
+             <line x1="10" y1="60" x2="10" y2="30" stroke="#2D3F50" strokeWidth="2" />
+             <line x1="90" y1="60" x2="90" y2="30" stroke="#2D3F50" strokeWidth="2" />
+             <line x1="30" y1="80" x2="30" y2="50" stroke="#2D3F50" strokeWidth="2" />
+             <line x1="70" y1="80" x2="70" y2="50" stroke="#2D3F50" strokeWidth="2" />
+             
+             {/* Atoms - Base */}
+             <circle cx="30" cy="80" r="4" fill="#4A9EFF" />
+             <circle cx="70" cy="80" r="4" fill="#4A9EFF" />
+             <circle cx="90" cy="60" r="4" fill="#4A9EFF" />
+             <circle cx="70" cy="40" r="4" fill="#4A9EFF" />
+             <circle cx="30" cy="40" r="4" fill="#4A9EFF" />
+             <circle cx="10" cy="60" r="4" fill="#4A9EFF" />
+             <circle cx="50" cy="60" r="4" fill="#F59E0B" /> {/* Center Base */}
+
+             {/* Atoms - Midplane (3 atoms) */}
+             <circle cx="50" cy="45" r="4" fill="#EF4444" />
+             <circle cx="30" cy="55" r="4" fill="#EF4444" />
+             <circle cx="70" cy="55" r="4" fill="#EF4444" />
+
+             {/* Atoms - Top */}
+             <circle cx="30" cy="50" r="4" fill="#4A9EFF" />
+             <circle cx="70" cy="50" r="4" fill="#4A9EFF" />
+             <circle cx="90" cy="30" r="4" fill="#4A9EFF" />
+             <circle cx="70" cy="10" r="4" fill="#4A9EFF" />
+             <circle cx="30" cy="10" r="4" fill="#4A9EFF" />
+             <circle cx="10" cy="30" r="4" fill="#4A9EFF" />
+             <circle cx="50" cy="30" r="4" fill="#F59E0B" /> {/* Center Top */}
           </>
         )}
       </svg>
@@ -916,7 +989,24 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
               <select 
                 value={crystInputs.sys} 
                 onChange={e => {
-                  setCrystInputs({...crystInputs, sys: e.target.value});
+                  const newSys = e.target.value;
+                  let newParams = { ...crystInputs, sys: newSys };
+                  
+                  if (newSys === 'HCP') {
+                    newParams.alpha = 90;
+                    newParams.beta = 90;
+                    newParams.gamma = 120;
+                    newParams.b = newParams.a; // b usually equals a
+                    // c is independent
+                  } else if (['SC', 'BCC', 'FCC', 'DC'].includes(newSys)) {
+                    newParams.alpha = 90;
+                    newParams.beta = 90;
+                    newParams.gamma = 90;
+                    newParams.b = newParams.a;
+                    newParams.c = newParams.a;
+                  }
+                  
+                  setCrystInputs(newParams);
                   setSelectedCrystPreset('Custom');
                 }}
                 className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none"
