@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, ScatterChart, Scatter, AreaChart, Area, ComposedChart, ReferenceDot } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, ScatterChart, Scatter, AreaChart, Area, ComposedChart, ReferenceDot, Bar } from 'recharts';
 import { AlertTriangle, Plus, Trash2, Zap, Thermometer, Magnet, Eye, Box } from 'lucide-react';
 
 const TABS = [
@@ -265,7 +265,13 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
   }, [magInputs]);
 
   // --- SUB-MODULE 4: Optical ---
-  const [optInputs, setOptInputs] = useState({ n: 1.5, k: 0, r: 4, t: 92, a: 4 });
+  const [optInputs, setOptInputs] = useState({ 
+    n: 1.5, k: 0, 
+    thickness: 1000, // nm
+    materialType: 'Constant', // 'Constant', 'Glass', 'Metal'
+    r: 4, t: 92, a: 4 
+  });
+  
   const [optData, setOptData] = useState([
     { id: 1, wl: 400, r: 5 },
     { id: 2, wl: 550, r: 4 },
@@ -282,6 +288,63 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
     return { label: 'Opaque', color: 'bg-[#94A3B8]' };
   }, [optInputs.t]);
 
+  const optAnalysis = useMemo(() => {
+    const { n, k, thickness, materialType } = optInputs;
+    
+    // 1. Single Point Calculation (at current n, k)
+    // Fresnel Reflectance at normal incidence
+    // R = ((n-1)^2 + k^2) / ((n+1)^2 + k^2)
+    const R_val = (Math.pow(n - 1, 2) + Math.pow(k, 2)) / (Math.pow(n + 1, 2) + Math.pow(k, 2));
+    
+    // Absorption Coefficient alpha = 4*pi*k / lambda
+    // Assume lambda = 550 nm for the single point display if not specified
+    const lambda_ref = 550e-9; // m
+    const alpha = (4 * Math.PI * k) / lambda_ref; // 1/m
+    
+    // Transmittance T = (1-R)^2 * exp(-alpha * t) (approx for thick slab)
+    // t in m
+    const t_m = thickness * 1e-9;
+    const T_internal = Math.exp(-alpha * t_m);
+    // T_total approx (1-R)^2 * T_int / (1 - R^2 * T_int^2) for incoherent
+    // Simplified: T = (1-R) * T_int * (1-R) ... roughly
+    const T_val = Math.pow(1 - R_val, 2) * T_internal;
+    
+    // Absorbance A = 1 - R - T
+    const A_val = 1 - R_val - T_val;
+
+    // 2. Spectral Generation
+    const spectrum = [];
+    for (let wl = 300; wl <= 1000; wl += 10) {
+        let n_l = n;
+        let k_l = k;
+
+        if (materialType === 'Glass') {
+            // Cauchy: n = n + B/lambda^2 (lambda in um)
+            // simple dispersion
+            const wl_um = wl / 1000;
+            n_l = n + 0.005 / (wl_um * wl_um);
+            k_l = 0;
+        } else if (materialType === 'Metal') {
+            // Drude-like (very simplified)
+            // n increases with lambda, k increases with lambda
+            // This is just for visualization "flavor"
+            const ratio = wl / 550;
+            n_l = n * ratio;
+            k_l = k * ratio;
+        }
+
+        const R_l = (Math.pow(n_l - 1, 2) + Math.pow(k_l, 2)) / (Math.pow(n_l + 1, 2) + Math.pow(k_l, 2));
+        spectrum.push({ wl, rTheo: R_l * 100 });
+    }
+
+    return { 
+        R: (R_val * 100).toFixed(2), 
+        T: (T_val * 100).toFixed(2), 
+        A: (A_val * 100).toFixed(2),
+        spectrum 
+    };
+  }, [optInputs]);
+
   const addOptPoint = () => {
     if (newOptPoint.wl && newOptPoint.r) {
       setOptData(prev => [...prev, { id: Date.now(), wl: Number(newOptPoint.wl), r: Number(newOptPoint.r) }].sort((a, b) => a.wl - b.wl));
@@ -290,29 +353,99 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
   };
 
   // --- SUB-MODULE 5: Crystal ---
-  const [crystInputs, setCrystInputs] = useState({ sys: 'FCC', a: 3.61, b: 3.61, c: 3.61, alpha: 90, beta: 90, gamma: 90, m: 63.55 });
+  const [crystInputs, setCrystInputs] = useState({ 
+    sys: 'FCC', 
+    a: 3.61, b: 3.61, c: 3.61, 
+    alpha: 90, beta: 90, gamma: 90, 
+    m: 63.55, // Atomic Mass (g/mol)
+    lambda: 1.5406 // X-ray wavelength (Angstrom)
+  });
   
-  const crystProps = useMemo(() => {
-    const { sys, a, b, c, alpha, beta, gamma, m } = crystInputs;
-    let n = 1, apf = 0;
+  const crystAnalysis = useMemo(() => {
+    const { sys, a, b, c, alpha, beta, gamma, m, lambda } = crystInputs;
+    
+    // 1. Volume Calculation
+    // Convert angles to radians
+    const rad = (deg) => deg * Math.PI / 180;
+    const ca = Math.cos(rad(alpha));
+    const cb = Math.cos(rad(beta));
+    const cg = Math.cos(rad(gamma));
+    
+    let V = 0; // Angstrom^3
+    let n = 1; // Atoms per unit cell
+    let apf = 0;
+
+    // Volume formula for general triclinic (works for all)
+    const term = 1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg;
+    V = a * b * c * Math.sqrt(term > 0 ? term : 0);
+
+    // System specific overrides for n and APF defaults
     if (sys === 'SC') { n = 1; apf = 0.52; }
     else if (sys === 'BCC') { n = 2; apf = 0.68; }
     else if (sys === 'FCC') { n = 4; apf = 0.74; }
-    else if (sys === 'HCP') { n = 6; apf = 0.74; }
+    else if (sys === 'HCP') { 
+        n = 6; apf = 0.74; 
+        // HCP Volume is usually 3*sqrt(3)*a^2*c / 2. 
+        // Our general formula works if we set gamma=120, a=b.
+    }
     else if (sys === 'DC') { n = 8; apf = 0.34; }
+    else { n = 1; apf = 0; } // General case
 
-    // Volume calculation (simplified for cubic/hex)
-    let v = 0;
-    if (sys === 'HCP') {
-      v = (3 * Math.sqrt(3) / 2) * Math.pow(a * 1e-8, 2) * (c * 1e-8);
-    } else {
-      v = Math.pow(a * 1e-8, 3); // Assuming cubic for others
+    // 2. Density Calculation
+    const NA = 6.022e23;
+    // rho = (n * M) / (V * NA)
+    // V is in A^3 = 1e-24 cm^3
+    const rho = (n * m) / (V * 1e-24 * NA); // g/cm^3
+
+    // 3. XRD Simulation (Simplified for Cubic)
+    // Bragg's Law: lambda = 2 * d * sin(theta) => theta = asin(lambda / 2d)
+    // 2theta = 2 * asin(...)
+    // d_hkl = a / sqrt(h^2 + k^2 + l^2) for cubic
+    const peaks = [];
+    if (['SC', 'BCC', 'FCC', 'DC'].includes(sys)) {
+        // Generate hkl
+        const hkls = [
+            [1,0,0], [1,1,0], [1,1,1], [2,0,0], [2,1,0], [2,1,1], [2,2,0], [3,0,0], [3,1,0], [3,1,1], [2,2,2]
+        ];
+        
+        hkls.forEach(([h, k, l]) => {
+            // Selection rules
+            let allowed = false;
+            const sum = h+k+l;
+            const mixed = (h%2 + k%2 + l%2); // 0 if all even, 3 if all odd, else mixed
+            
+            if (sys === 'SC') allowed = true;
+            if (sys === 'BCC') allowed = (sum % 2 === 0);
+            if (sys === 'FCC') allowed = (mixed === 0 || mixed === 3); // All even or all odd
+            if (sys === 'DC') allowed = (mixed === 0 || mixed === 3) && (sum % 4 !== 2); // Diamond rules
+
+            if (allowed) {
+                const d = a / Math.sqrt(h*h + k*k + l*l);
+                if (lambda < 2*d) {
+                    const theta = Math.asin(lambda / (2*d));
+                    const twoTheta = 2 * theta * (180 / Math.PI);
+                    // Intensity factors (simplified)
+                    // Multiplicity * LP factor * Structure Factor
+                    // Just random-ish decay for visualization
+                    const intensity = 100 * Math.exp(-twoTheta / 100); 
+                    peaks.push({ 
+                        angle: twoTheta.toFixed(1), 
+                        intensity: intensity,
+                        label: `(${h}${k}${l})`,
+                        d: d.toFixed(3)
+                    });
+                }
+            }
+        });
     }
 
-    const NA = 6.022e23;
-    const rho = (n * m) / (v * NA); // g/cm^3
-
-    return { n, apf, rho: rho.toFixed(2) };
+    return { 
+        V: V.toFixed(2), 
+        rho: rho.toFixed(2), 
+        n, 
+        apf,
+        peaks: peaks.sort((a,b) => Number(a.angle) - Number(b.angle))
+    };
   }, [crystInputs]);
 
   const renderUnitCell = () => {
@@ -659,12 +792,46 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
               <span className={`px-3 py-1 rounded-full text-xs font-bold ${optClass.color} text-white`}>{optClass.label}</span>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              {Object.entries({ n: 'Refractive Index (n)', k: 'Extinction Coeff (k)' }).map(([key, label]) => (
-                <div key={key}>
-                  <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
-                  <input type="number" step="any" value={optInputs[key]} onChange={e => setOptInputs({...optInputs, [key]: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
-                </div>
-              ))}
+              <div>
+                <label className="block text-sm text-[#94A3B8] mb-1">Refractive Index (n)</label>
+                <input type="number" step="any" value={optInputs.n} onChange={e => setOptInputs({...optInputs, n: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-[#94A3B8] mb-1">Extinction Coeff (k)</label>
+                <input type="number" step="any" value={optInputs.k} onChange={e => setOptInputs({...optInputs, k: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-[#94A3B8] mb-1">Thickness (nm)</label>
+                <input type="number" step="any" value={optInputs.thickness} onChange={e => setOptInputs({...optInputs, thickness: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm text-[#94A3B8] mb-1">Material Model</label>
+                <select 
+                  value={optInputs.materialType} 
+                  onChange={e => setOptInputs({...optInputs, materialType: e.target.value})}
+                  className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none"
+                >
+                  <option value="Constant">Constant</option>
+                  <option value="Glass">Glass-like (Cauchy)</option>
+                  <option value="Metal">Metal-like (Drude)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-4 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md space-y-2">
+              <h3 className="text-sm text-[#94A3B8] mb-2">Calculated Properties (at 550nm)</h3>
+              <div className="flex justify-between items-center">
+                <span className="text-[#F1F5F9] text-sm">Reflectance R:</span>
+                <span className="font-bold text-[#4A9EFF]">{optAnalysis.R}%</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[#F1F5F9] text-sm">Transmittance T:</span>
+                <span className="font-bold text-[#22C55E]">{optAnalysis.T}%</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[#F1F5F9] text-sm">Absorbance A:</span>
+                <span className="font-bold text-[#EF4444]">{optAnalysis.A}%</span>
+              </div>
             </div>
             <div className="pt-4 border-t border-[#2D3F50]">
               <h3 className="text-sm font-medium text-[#4A9EFF] mb-3">R + T + A = 100%</h3>
@@ -691,13 +858,15 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
             </div>
             <div className="flex-1 min-h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={optData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                <ComposedChart margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                  <XAxis dataKey="wl" type="number" domain={['auto', 'auto']} stroke="#94A3B8" label={{ value: 'Wavelength (nm)', position: 'bottom', fill: '#94A3B8' }} />
+                  <XAxis dataKey="wl" type="number" domain={[300, 1000]} stroke="#94A3B8" label={{ value: 'Wavelength (nm)', position: 'bottom', fill: '#94A3B8' }} />
                   <YAxis stroke="#94A3B8" domain={[0, 100]} label={{ value: 'Reflectance (%)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
                   <Tooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} />
-                  <Area type="monotone" dataKey="r" stroke="#4A9EFF" fill="#4A9EFF" fillOpacity={0.3} />
-                </AreaChart>
+                  <Legend />
+                  <Area data={optAnalysis.spectrum} type="monotone" dataKey="rTheo" stroke="#4A9EFF" fill="#4A9EFF" fillOpacity={0.1} name="Theoretical" />
+                  <Scatter data={optData} dataKey="r" fill="#F59E0B" name="Experimental" />
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           </div>
@@ -723,36 +892,57 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
                 </div>
               ))}
             </div>
-            <div>
-              <label className="block text-sm text-[#94A3B8] mb-1">Atomic Mass M (g/mol)</label>
-              <input type="number" step="any" value={crystInputs.m} onChange={e => setCrystInputs({...crystInputs, m: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+            <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-[#94A3B8] mb-1">Atomic Mass (g/mol)</label>
+                  <input type="number" step="any" value={crystInputs.m} onChange={e => setCrystInputs({...crystInputs, m: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#94A3B8] mb-1">X-ray λ (Å)</label>
+                  <input type="number" step="any" value={crystInputs.lambda} onChange={e => setCrystInputs({...crystInputs, lambda: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                </div>
+            </div>
+
+            <div className="mt-4 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md space-y-2">
+                <h3 className="text-sm text-[#94A3B8] border-b border-[#2D3F50] pb-1 mb-2">Theoretical Properties</h3>
+                <div className="flex justify-between items-center">
+                    <span className="text-[#F1F5F9] text-sm">Volume Vc:</span>
+                    <span className="font-bold text-[#4A9EFF]">{crystAnalysis.V} Å³</span>
+                </div>
+                <div className="flex justify-between items-center">
+                    <span className="text-[#F1F5F9] text-sm">Density ρ:</span>
+                    <span className="font-bold text-[#22C55E]">{crystAnalysis.rho} g/cm³</span>
+                </div>
+                <div className="flex justify-between items-center">
+                    <span className="text-[#F1F5F9] text-sm">APF:</span>
+                    <span className="font-bold text-[#F59E0B]">{crystAnalysis.apf}</span>
+                </div>
             </div>
           </div>
           
-          <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-2 flex flex-col md:flex-row items-center gap-8">
-            <div className="flex-1 w-full">
-              <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-6">Theoretical Properties</h2>
-              <div className="space-y-4">
-                <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex justify-between items-center">
-                  <div className="text-[#94A3B8]">Atoms per Unit Cell (n)</div>
-                  <div className="text-xl font-bold text-[#F1F5F9]">{crystProps.n}</div>
+          <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-2 flex flex-col gap-6">
+             <div className="flex-1 min-h-[250px] flex flex-col">
+                <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Simulated XRD Pattern (Cu Kα)</h2>
+                <div className="flex-1">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={crystAnalysis.peaks} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
+                            <XAxis dataKey="angle" type="number" domain={['auto', 'auto']} stroke="#94A3B8" label={{ value: '2θ (degrees)', position: 'bottom', fill: '#94A3B8' }} />
+                            <YAxis stroke="#94A3B8" label={{ value: 'Intensity (a.u.)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
+                            <Tooltip 
+                                contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }}
+                                labelFormatter={(label) => `2θ: ${label}°`}
+                            />
+                            <Bar dataKey="intensity" fill="#4A9EFF" barSize={4} name="Peak Intensity" />
+                        </ComposedChart>
+                    </ResponsiveContainer>
                 </div>
-                <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex justify-between items-center">
-                  <div className="text-[#94A3B8]">Atomic Packing Factor (APF)</div>
-                  <div className="text-xl font-bold text-[#F59E0B]">{crystProps.apf}</div>
-                </div>
-                <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex justify-between items-center">
-                  <div>
-                    <div className="text-[#F1F5F9] font-medium">Theoretical Density (ρ)</div>
-                    <div className="text-xs text-[#94A3B8]">ρ = (n × M) / (NA × Vc)</div>
-                  </div>
-                  <div className="text-2xl font-bold text-[#4A9EFF]">{crystProps.rho} g/cm³</div>
-                </div>
-              </div>
-            </div>
-            <div className="flex-1 w-full bg-[#0F1923] border border-[#2D3F50] rounded-md p-6 flex items-center justify-center min-h-[300px]">
-              {renderUnitCell()}
-            </div>
+             </div>
+
+             <div className="h-[200px] w-full bg-[#0F1923] border border-[#2D3F50] rounded-md p-4 flex items-center justify-center relative overflow-hidden">
+                <div className="absolute top-2 left-2 text-xs text-[#94A3B8]">Unit Cell Visualization (2D Projection)</div>
+                {renderUnitCell()}
+             </div>
           </div>
         </div>
       )}
