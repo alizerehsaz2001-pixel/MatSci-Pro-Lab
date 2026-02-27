@@ -11,6 +11,13 @@ const TABS = [
   'Calculators'
 ];
 
+const MATERIAL_PRESETS = {
+  'Structural Steel': { E: 200, Sy: 250, UTS: 400, eu: 10, ef: 20, nu: 0.3 },
+  'Aluminum 6061-T6': { E: 69, Sy: 276, UTS: 310, eu: 12, ef: 17, nu: 0.33 },
+  'Titanium Ti-6Al-4V': { E: 114, Sy: 880, UTS: 950, eu: 14, ef: 14, nu: 0.34 },
+  'Copper (Annealed)': { E: 110, Sy: 70, UTS: 220, eu: 45, ef: 50, nu: 0.34 }
+};
+
 export default function MechanicalProperties({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme }) {
   const [activeTab, setActiveTab] = useState(TABS[0]);
   const [toasts, setToasts] = useState([]);
@@ -47,7 +54,8 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
   };
 
   // --- SUB-MODULE 1: Stress-Strain ---
-  const [ssInputs, setSsInputs] = useState({ E: 200, Sy: 250, UTS: 400, eu: 10, ef: 20, nu: 0.3 });
+  const [ssInputs, setSsInputs] = useState(MATERIAL_PRESETS['Structural Steel']);
+  const [selectedPreset, setSelectedPreset] = useState('Structural Steel');
   const [ssType, setSsType] = useState('engineering'); // 'engineering' or 'true'
 
   const ssData = useMemo(() => {
@@ -486,17 +494,41 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-1 space-y-4">
               <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Material Parameters</h2>
-              {Object.entries({ E: 'Young\'s Modulus (GPa)', Sy: 'Yield Strength (MPa)', UTS: 'Ultimate Tensile Strength (MPa)', eu: 'Uniform Elongation (%)', ef: 'Fracture Strain (%)', nu: 'Poisson\'s Ratio' }).map(([key, label]) => (
-                <div key={key}>
-                  <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
-                  <input 
-                    type="number" 
-                    value={ssInputs[key]} 
-                    onChange={e => setSsInputs({...ssInputs, [key]: Number(e.target.value)})}
-                    className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
-                  />
-                </div>
-              ))}
+              
+              <div className="mb-4">
+                <label className="block text-sm text-[#94A3B8] mb-1">Material Preset</label>
+                <select 
+                  value={selectedPreset} 
+                  onChange={(e) => {
+                    const preset = e.target.value;
+                    setSelectedPreset(preset);
+                    if (MATERIAL_PRESETS[preset]) {
+                      setSsInputs(MATERIAL_PRESETS[preset]);
+                    }
+                  }}
+                  className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none"
+                >
+                  {Object.keys(MATERIAL_PRESETS).map(key => <option key={key} value={key}>{key}</option>)}
+                  <option value="Custom">Custom</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {Object.entries({ E: 'Young\'s Modulus (GPa)', Sy: 'Yield Strength (MPa)', UTS: 'Ultimate Tensile Strength (MPa)', eu: 'Uniform Elongation (%)', ef: 'Fracture Strain (%)', nu: 'Poisson\'s Ratio' }).map(([key, label]) => (
+                  <div key={key} className={key === 'UTS' || key === 'nu' ? '' : ''}>
+                    <label className="block text-xs text-[#94A3B8] mb-1">{label}</label>
+                    <input 
+                      type="number" 
+                      value={ssInputs[key]} 
+                      onChange={e => {
+                        setSsInputs({...ssInputs, [key]: Number(e.target.value)});
+                        setSelectedPreset('Custom');
+                      }}
+                      className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
+                    />
+                  </div>
+                ))}
+              </div>
               
               <div className="mt-6 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md space-y-2">
                 <h3 className="text-sm text-[#94A3B8] font-medium border-b border-[#2D3F50] pb-1 mb-2">Calculated Properties</h3>
