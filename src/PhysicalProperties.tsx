@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, ScatterChart, Scatter, AreaChart, Area, ComposedChart } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, ScatterChart, Scatter, AreaChart, Area, ComposedChart, ReferenceDot } from 'recharts';
 import { AlertTriangle, Plus, Trash2, Zap, Thermometer, Magnet, Eye, Box } from 'lucide-react';
 
 const TABS = [
@@ -83,16 +83,41 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
   };
 
   // --- SUB-MODULE 2: Electrical ---
-  const [elecInputs, setElecInputs] = useState({ rho: 1.68e-8, sigma: 5.96e7, r0: 100, alpha: 0.00393, t0: 20, t: 100, er: 1, vbd: 0 });
+  const [elecInputs, setElecInputs] = useState({ 
+    rho: 1.68e-8, sigma: 5.96e7, 
+    r0: 100, alpha: 0.00393, t0: 20, t: 100, 
+    er: 1, vbd: 0,
+    model: 'Metal', // 'Metal' or 'Semiconductor'
+    Eg: 1.1, // Band Gap (eV)
+    n: 8.5e28, // Carrier Density (1/m^3)
+    mu: 0.0045 // Mobility (m^2/V·s)
+  });
   
   const handleElecChange = (field, value) => {
-    const num = Number(value);
+    if (field === 'model') {
+      setElecInputs(prev => ({ ...prev, [field]: value }));
+      return;
+    }
+
+    const num = parseFloat(value);
+    // If input is empty or invalid, we might get NaN. 
+    // We store it as is if it's NaN to allow user to clear input, 
+    // but we guard calculations.
+    
     if (field === 'rho') {
-      setElecInputs(prev => ({ ...prev, rho: num, sigma: num === 0 ? 0 : 1 / num }));
+      setElecInputs(prev => ({ 
+        ...prev, 
+        rho: isNaN(num) ? 0 : num, 
+        sigma: (num === 0 || isNaN(num)) ? 0 : 1 / num 
+      }));
     } else if (field === 'sigma') {
-      setElecInputs(prev => ({ ...prev, sigma: num, rho: num === 0 ? 0 : 1 / num }));
+      setElecInputs(prev => ({ 
+        ...prev, 
+        sigma: isNaN(num) ? 0 : num, 
+        rho: (num === 0 || isNaN(num)) ? 0 : 1 / num 
+      }));
     } else {
-      setElecInputs(prev => ({ ...prev, [field]: num }));
+      setElecInputs(prev => ({ ...prev, [field]: isNaN(num) ? 0 : num }));
     }
   };
 
@@ -103,9 +128,52 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
     return { label: 'Semiconductor', color: 'bg-[#F59E0B]', text: 'text-[#F59E0B]' };
   }, [elecInputs.rho]);
 
-  const rtCalc = useMemo(() => {
-    const { r0, alpha, t0, t } = elecInputs;
-    return (r0 * (1 + alpha * (t - t0))).toFixed(2);
+  const elecAnalysis = useMemo(() => {
+    const { rho, sigma, alpha, t0, t, model, Eg, n, mu } = elecInputs;
+    const q = 1.602e-19;
+    const kB = 8.617e-5; // eV/K
+
+    // Theoretical Conductivity from carriers
+    // sigma = n * q * mu
+    const sigma_theo = n * q * mu;
+
+    // Generate Rho vs T data
+    const data = [];
+    // Range: -50 to 500 C
+    for (let temp = -50; temp <= 500; temp += 10) {
+      const T_K = temp + 273.15;
+      const T0_K = t0 + 273.15;
+      let val = 0;
+
+      if (model === 'Metal') {
+        // Linear: rho = rho0 * (1 + alpha * (T - T0))
+        val = rho * (1 + alpha * (temp - t0));
+      } else {
+        // Semiconductor: rho ~ exp(Eg / 2kT)
+        // We normalize to the input rho at t0
+        // rho(T) = rho(T0) * exp(Eg/2kT) / exp(Eg/2kT0)
+        // rho(T) = rho(T0) * exp( (Eg/2k) * (1/T - 1/T0) )
+        if (T_K > 0) {
+            const exponent = (Eg / (2 * kB)) * (1/T_K - 1/T0_K);
+            val = rho * Math.exp(exponent);
+        }
+      }
+      data.push({ temp, rho: val > 0 ? val : 0 });
+    }
+
+    // Calculate current point
+    let currentRho = 0;
+    const T_target_K = t + 273.15;
+    const T0_K = t0 + 273.15;
+    
+    if (model === 'Metal') {
+        currentRho = rho * (1 + alpha * (t - t0));
+    } else {
+        const exponent = (Eg / (2 * kB)) * (1/T_target_K - 1/T0_K);
+        currentRho = rho * Math.exp(exponent);
+    }
+
+    return { data, currentRho, sigma_theo: sigma_theo.toExponential(2) };
   }, [elecInputs]);
 
   // --- SUB-MODULE 3: Magnetic ---
@@ -354,6 +422,23 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
               </div>
             </div>
 
+            <div className="pt-4 border-t border-[#2D3F50]">
+              <h3 className="text-sm font-medium text-[#4A9EFF] mb-3">Carrier Properties</h3>
+              <div className="grid grid-cols-2 gap-3">
+                 <div>
+                    <label className="block text-xs text-[#94A3B8] mb-1">Carrier Density n (1/m³)</label>
+                    <input type="number" step="any" value={elecInputs.n} onChange={e => handleElecChange('n', e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                 </div>
+                 <div>
+                    <label className="block text-xs text-[#94A3B8] mb-1">Mobility μ (m²/V·s)</label>
+                    <input type="number" step="any" value={elecInputs.mu} onChange={e => handleElecChange('mu', e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                 </div>
+              </div>
+              <div className="mt-2 text-xs text-[#94A3B8]">
+                Theoretical σ = n·q·μ = <span className="text-[#F1F5F9]">{elecAnalysis.sigma_theo} S/m</span>
+              </div>
+            </div>
+
             <div className="mt-6 pt-4 border-t border-[#2D3F50]">
               <h3 className="text-sm font-medium text-[#4A9EFF] mb-4">Resistivity Scale</h3>
               <div className="relative h-8 bg-gradient-to-r from-[#22C55E] via-[#F59E0B] to-[#EF4444] rounded-md overflow-hidden">
@@ -371,20 +456,67 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
             </div>
           </div>
 
-          <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg space-y-4">
-            <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Temperature Coefficient</h2>
+          <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg space-y-4 flex flex-col">
+            <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Temperature Dependence</h2>
+            
+            <div className="flex gap-4 mb-2">
+               <div className="flex-1">
+                 <label className="block text-sm text-[#94A3B8] mb-1">Conduction Model</label>
+                 <select 
+                    value={elecInputs.model} 
+                    onChange={e => handleElecChange('model', e.target.value)}
+                    className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none"
+                 >
+                    <option value="Metal">Metal (Linear)</option>
+                    <option value="Semiconductor">Semiconductor (Exponential)</option>
+                 </select>
+               </div>
+               <div className="flex-1">
+                 {elecInputs.model === 'Metal' ? (
+                    <>
+                      <label className="block text-sm text-[#94A3B8] mb-1">Temp Coeff α (1/K)</label>
+                      <input type="number" step="any" value={elecInputs.alpha} onChange={e => handleElecChange('alpha', e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                    </>
+                 ) : (
+                    <>
+                      <label className="block text-sm text-[#94A3B8] mb-1">Band Gap Eg (eV)</label>
+                      <input type="number" step="any" value={elecInputs.Eg} onChange={e => handleElecChange('Eg', e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+                    </>
+                 )}
+               </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
-              {Object.entries({ r0: 'Base Resistance R₀ (Ω)', alpha: 'Temp Coeff α (1/K)', t0: 'Base Temp T₀ (°C)', t: 'Target Temp T (°C)' }).map(([key, label]) => (
+              {Object.entries({ t0: 'Ref Temp T₀ (°C)', t: 'Target Temp T (°C)' }).map(([key, label]) => (
                 <div key={key}>
                   <label className="block text-sm text-[#94A3B8] mb-1">{label}</label>
                   <input type="number" step="any" value={elecInputs[key]} onChange={e => handleElecChange(key, e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
                 </div>
               ))}
             </div>
-            <div className="mt-6 p-6 bg-[#0F1923] border border-[#2D3F50] rounded-md text-center">
-              <h3 className="text-sm text-[#94A3B8] mb-2">Resistance at {elecInputs.t}°C</h3>
-              <div className="text-4xl font-bold text-[#4A9EFF]">{rtCalc} Ω</div>
-              <p className="text-xs text-[#94A3B8] mt-4">R(T) = R₀[1 + α(T-T₀)]</p>
+
+            <div className="flex-1 min-h-[250px] mt-4">
+               <ResponsiveContainer width="100%" height="100%">
+                 <LineChart data={elecAnalysis.data} margin={{ top: 10, right: 30, left: 20, bottom: 10 }}>
+                   <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
+                   <XAxis dataKey="temp" type="number" stroke="#94A3B8" label={{ value: 'Temperature (°C)', position: 'bottom', fill: '#94A3B8' }} />
+                   <YAxis stroke="#94A3B8" label={{ value: 'Resistivity (Ω·m)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} scale="log" domain={['auto', 'auto']} />
+                   <Tooltip 
+                      contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} 
+                      formatter={(val) => val.toExponential(2)}
+                   />
+                   <Line type="monotone" dataKey="rho" stroke="#4A9EFF" strokeWidth={2} dot={false} />
+                   <ReferenceDot x={elecInputs.t} y={elecAnalysis.currentRho} r={5} fill="#F59E0B" stroke="none" />
+                 </LineChart>
+               </ResponsiveContainer>
+            </div>
+
+            <div className="mt-2 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md text-center">
+              <h3 className="text-sm text-[#94A3B8] mb-2">Resistivity at {elecInputs.t}°C</h3>
+              <div className="text-2xl font-bold text-[#4A9EFF]">{elecAnalysis.currentRho.toExponential(2)} Ω·m</div>
+              <p className="text-xs text-[#94A3B8] mt-2">
+                {elecInputs.model === 'Metal' ? 'ρ(T) = ρ₀[1 + α(T-T₀)]' : 'ρ(T) ∝ exp(Eg/2kT)'}
+              </p>
             </div>
           </div>
         </div>
