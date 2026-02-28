@@ -387,13 +387,13 @@ export default function MaterialsDatabase({ materials, setMaterials, testLogs, s
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const text = event.target.result;
+        const text = event.target.result as string;
         const lines = text.split('\n').filter(l => l.trim());
         if (lines.length < 2) throw new Error('Invalid CSV');
         const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
         const newMaterials = lines.slice(1).map(line => {
           const values = line.split(',').map(v => v.replace(/"/g, '').trim());
-          const obj = {};
+          const obj: any = {};
           headers.forEach((h, i) => {
             obj[h] = isNaN(Number(values[i])) ? values[i] : Number(values[i]);
           });

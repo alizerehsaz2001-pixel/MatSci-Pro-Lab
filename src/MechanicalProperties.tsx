@@ -1077,7 +1077,7 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                         <div className="text-[#F1F5F9] font-medium">Safety Factor</div>
                         <div className="text-xs text-[#94A3B8]">SF = Sy / Stress</div>
                       </div>
-                      <div className={`text-xl font-bold ${calcResults.SF >= 1 ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}>{calcResults.SF}</div>
+                      <div className={`text-xl font-bold ${Number(calcResults.SF) >= 1 ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}>{calcResults.SF}</div>
                     </div>
 
                     <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex justify-between items-center">

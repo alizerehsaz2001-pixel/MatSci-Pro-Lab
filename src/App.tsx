@@ -128,6 +128,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         </div>
         <div className={currentModule === 'Testing & Standards' ? 'h-full' : 'hidden'}>
@@ -139,6 +140,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         </div>
         <div className={currentModule === 'Reports' ? 'h-full' : 'hidden'}>
@@ -150,6 +152,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         </div>
         <div className={currentModule === 'User Management' ? 'h-full' : 'hidden'}>
@@ -161,6 +164,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         </div>
         <div className={currentModule === 'Settings' ? 'h-full' : 'hidden'}>
@@ -172,6 +176,7 @@ export default function App() {
             currentUser={currentUser}
             unitSystem={unitSystem}
             theme={theme}
+            onNavigate={setCurrentModule}
           />
         </div>
       </div>

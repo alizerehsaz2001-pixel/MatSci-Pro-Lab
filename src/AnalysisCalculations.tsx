@@ -1,6 +1,8 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, ScatterChart, Scatter, LineChart, Line, ComposedChart, ReferenceLine, Area } from 'recharts';
-import { Calculator, BarChart2, TrendingUp, Filter, AlertTriangle, Plus, Trash2, ChevronRight, ChevronLeft, CheckCircle, Download, Upload, X } from 'lucide-react';
+import { Calculator, BarChart2, TrendingUp, Filter, AlertTriangle, Plus, Trash2, ChevronRight, ChevronLeft, CheckCircle, Download, Upload, X, Brain, Send, Sparkles, Loader2 } from 'lucide-react';
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
+import Markdown from 'react-markdown';
 
 const TABS = [
   { id: 'Universal Calculator', icon: Calculator },
@@ -122,10 +124,97 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
     
     const mat = materials.find(m => m.id === id);
     if (mat) {
-      // Populate Calculators with common fields if they exist in the formula
-      // This is a bit complex because calcInputs is nested by calcId
-      // For simplicity, we'll just toast and let user know it's loaded for some
-      addToast(`Loaded properties for ${mat.name}. Use them in relevant calculators.`);
+      const newInputs = { ...calcInputs };
+      
+      // Smart mapping of material properties to calculator inputs
+      FORMULAS.forEach(formula => {
+        formula.inputs.forEach(input => {
+          if (input.key === 'sy' && mat.yieldStrength) {
+            newInputs[formula.id] = { ...newInputs[formula.id], [input.key]: mat.yieldStrength };
+          }
+          if (input.key === 'E' && mat.youngsModulus) {
+            newInputs[formula.id] = { ...newInputs[formula.id], [input.key]: mat.youngsModulus };
+          }
+          if (input.key === 'nu' && mat.poissonRatio) {
+            newInputs[formula.id] = { ...newInputs[formula.id], [input.key]: mat.poissonRatio };
+          }
+          if (input.key === 'rho' && mat.density) {
+            // Note: density in g/cm3 vs kg/m3. Formula 'diffusivity' uses kg/m3
+            const val = formula.id === 'diffusivity' ? mat.density * 1000 : mat.density;
+            newInputs[formula.id] = { ...newInputs[formula.id], [input.key]: val };
+          }
+          if (input.key === 'k' && mat.thermalConductivity) {
+            newInputs[formula.id] = { ...newInputs[formula.id], [input.key]: mat.thermalConductivity };
+          }
+          if (input.key === 'sigma' && mat.yieldStrength) {
+            // Default stress to yield strength for safety factor or youngs
+            newInputs[formula.id] = { ...newInputs[formula.id], [input.key]: mat.yieldStrength * 1e6 }; // MPa to Pa
+          }
+        });
+      });
+      
+      setCalcInputs(newInputs);
+      addToast(`Smart-populated properties for ${mat.name} across relevant calculators.`);
+    }
+  };
+
+  // --- AI Assistant Sub-module ---
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [aiQuery, setAiQuery] = useState('');
+  const [aiResponse, setAiResponse] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const askAssistant = async () => {
+    if (!aiQuery.trim()) return;
+    setAiLoading(true);
+    setAiResponse('');
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      
+      const context = {
+        activeTab,
+        selectedMaterial: materials.find(m => m.id === selectedMaterialId),
+        stats: activeTab === 'Statistical Analysis' && statsData ? {
+          mean: statsData.mean,
+          stdDev: statsData.stdDev,
+          outliers: statsData.outliers.length,
+          skewness: statsData.skewness
+        } : null,
+        interpolation: activeTab === 'Interpolation' && interpResult ? {
+          equation: interpResult.equation,
+          r2: interpResult.r2,
+          rmse: interpResult.rmse
+        } : null,
+        selector: activeTab === 'Material Selector' ? {
+          criteria: selCriteria,
+          topMatches: rankedMaterials.slice(0, 3).map(m => m.name)
+        } : null
+      };
+
+      const prompt = `You are an Advanced Materials Science Analysis Assistant.
+      Current App State: ${JSON.stringify(context)}
+      User Question: ${aiQuery}
+      
+      Provide a highly technical, accurate, and insightful response. 
+      Use the context provided to give specific advice. 
+      If analyzing data, explain trends and physical implications (e.g., why a high Weibull modulus is good).
+      If recommending materials, justify based on the properties in the database.
+      Format your response in clear Markdown.`;
+
+      const result = await ai.models.generateContent({
+        model: "gemini-3.1-pro-preview",
+        contents: prompt,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH }
+        }
+      });
+
+      setAiResponse(result.text);
+    } catch (err) {
+      console.error(err);
+      setAiResponse("### Error\nFailed to connect to the analysis engine. Please ensure your API key is configured correctly.");
+    } finally {
+      setAiLoading(false);
     }
   };
 
@@ -155,7 +244,7 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const text = evt.target.result;
+      const text = evt.target.result as string;
       // Try to parse CSV or simple list
       const cleanText = text.replace(/[\r\n]+/g, ',').replace(/\s+/g, ',');
       setStatsText(cleanText);
@@ -242,7 +331,7 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const text = evt.target.result;
+      const text = evt.target.result as string;
       setInterpText(text);
     };
     reader.readAsText(file);
@@ -471,34 +560,107 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
         ))}
       </div>
 
-      <div className="bg-[#1A2634] p-4 rounded-lg border border-[#2D3F50] shadow-lg shrink-0">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-[#F1F5F9]">Analysis & Calculations</h1>
-            <p className="text-[#94A3B8] text-sm mt-1">Universal engineering calculators and statistical tools</p>
-          </div>
-          <div className="w-full md:w-64">
+      <div className="bg-[#1A2634] p-4 rounded-lg border border-[#2D3F50] shadow-lg shrink-0 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-[#F1F5F9]">Analysis & Calculations</h1>
+          <p className="text-[#94A3B8] text-sm mt-1">Advanced engineering tools and data analysis</p>
+        </div>
+        
+        <div className="flex items-center gap-4 w-full md:w-auto">
+          <div className="flex-1 md:w-64">
+            <label className="block text-[10px] uppercase tracking-wider text-[#94A3B8] mb-1 font-bold">Smart Reference Material</label>
             <select 
-              value={selectedMaterialId}
+              value={selectedMaterialId} 
               onChange={handleMaterialSelect}
-              className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm"
+              className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm"
             >
-              <option value="">-- Reference Material --</option>
+              <option value="">Select Material to Auto-Fill...</option>
               {materials.map(m => (
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
             </select>
           </div>
+          <button 
+            onClick={() => setIsAssistantOpen(!isAssistantOpen)}
+            className={`p-2 rounded-full transition-all ${isAssistantOpen ? 'bg-[#4A9EFF] text-white' : 'bg-[#2D3F50] text-[#4A9EFF] hover:bg-[#4A9EFF] hover:text-white'} shadow-lg group relative`}
+            title="Smart Analysis Assistant"
+          >
+            <Brain size={24} />
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#4A9EFF] opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-[#4A9EFF]"></span>
+            </span>
+          </button>
         </div>
-        
-        <div className="flex overflow-x-auto gap-2 mt-6 pb-2 border-b border-[#2D3F50] scrollbar-hide">
+      </div>
+
+      {/* AI Assistant Panel */}
+      {isAssistantOpen && (
+        <div className="bg-[#1A2634] border border-[#4A9EFF]/30 rounded-lg shadow-2xl overflow-hidden animate-in slide-in-from-top-4 duration-300">
+          <div className="bg-[#4A9EFF]/10 p-4 border-b border-[#4A9EFF]/20 flex justify-between items-center">
+            <div className="flex items-center gap-2 text-[#4A9EFF]">
+              <Sparkles size={20} />
+              <span className="font-bold uppercase tracking-widest text-xs">Advanced Analysis Assistant</span>
+            </div>
+            <button onClick={() => setIsAssistantOpen(false)} className="text-[#94A3B8] hover:text-white">
+              <X size={20} />
+            </button>
+          </div>
+          <div className="p-4">
+            <div className="flex gap-2 mb-4">
+              <input 
+                type="text" 
+                value={aiQuery}
+                onChange={e => setAiQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && askAssistant()}
+                placeholder={`Ask about ${activeTab.toLowerCase()}...`}
+                className="flex-1 bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-4 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm"
+              />
+              <button 
+                onClick={askAssistant}
+                disabled={aiLoading}
+                className="bg-[#4A9EFF] text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                {aiLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+              </button>
+            </div>
+            {aiResponse && (
+              <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50] max-h-[400px] overflow-y-auto custom-scrollbar">
+                <div className="prose prose-invert prose-sm max-w-none">
+                  <Markdown>{aiResponse}</Markdown>
+                </div>
+              </div>
+            )}
+            {!aiResponse && !aiLoading && (
+              <div className="text-center py-8 text-[#94A3B8]">
+                <Brain size={48} className="mx-auto mb-4 opacity-20" />
+                <p className="text-sm">Ask me to analyze your current data, recommend materials, or explain complex phenomena.</p>
+                <div className="flex flex-wrap justify-center gap-2 mt-4">
+                  {['Analyze outliers', 'Explain R²', 'Recommend for stiffness', 'Physical significance'].map(suggestion => (
+                    <button 
+                      key={suggestion}
+                      onClick={() => { setAiQuery(suggestion); }}
+                      className="text-[10px] bg-[#2D3F50] hover:bg-[#4A9EFF] text-[#F1F5F9] px-2 py-1 rounded transition-colors"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-[#1A2634] p-2 rounded-lg border border-[#2D3F50] shadow-lg shrink-0">
+        <div className="flex overflow-x-auto gap-2 pb-1 scrollbar-hide">
           {TABS.map(tab => {
             const Icon = tab.icon;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-2 rounded-t-md text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === tab.id ? 'bg-[#4A9EFF] text-white' : 'text-[#94A3B8] hover:text-[#F1F5F9] hover:bg-[#2D3F50]'}`}
+                className={`px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === tab.id ? 'bg-[#4A9EFF] text-white' : 'text-[#94A3B8] hover:text-[#F1F5F9] hover:bg-[#2D3F50]'}`}
               >
                 <Icon size={16} /> {tab.id}
               </button>
@@ -776,6 +938,31 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
                   ))}
                 </div>
               </div>
+
+              <div className="pt-4 border-t border-[#2D3F50]">
+                <button 
+                  onClick={() => {
+                    const mat = materials.find(m => m.id === selectedMaterialId);
+                    if (mat) {
+                      setSelCriteria({
+                        ...selCriteria,
+                        minYield: mat.yieldStrength || 0,
+                        maxDensity: mat.density || 20,
+                        minYoungs: mat.youngsModulus || 0,
+                        minMeltingPoint: mat.meltingPoint || 0,
+                        minThermalCond: mat.thermalConductivity || 0,
+                        electrical: mat.electricalResistivity < 1e-5 ? 'conductor' : mat.electricalResistivity > 1e5 ? 'insulator' : 'any'
+                      });
+                      addToast(`Criteria synced with ${mat.name}.`);
+                    } else {
+                      addToast('Select a reference material first.', 'error');
+                    }
+                  }}
+                  className="w-full bg-[#4A9EFF]/10 hover:bg-[#4A9EFF]/20 text-[#4A9EFF] border border-[#4A9EFF]/30 py-2 rounded-md text-xs font-bold flex items-center justify-center gap-2 transition-all"
+                >
+                  <Sparkles size={14} /> Sync with Reference
+                </button>
+              </div>
             </div>
 
             <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-2 flex flex-col">
@@ -807,7 +994,18 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
                       <div className="text-2xl font-bold text-[#2D3F50] w-8 text-center">#{idx + 1}</div>
                       <div className="flex-1">
                         <div className="flex justify-between items-center mb-1">
-                          <span className="font-bold text-[#F1F5F9]">{m.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-[#F1F5F9]">{m.name}</span>
+                            <button 
+                              onClick={() => {
+                                setSelectedMaterialId(m.id);
+                                handleMaterialSelect({ target: { value: m.id } });
+                              }}
+                              className="text-[10px] bg-[#2D3F50] hover:bg-[#4A9EFF] text-white px-2 py-0.5 rounded transition-colors"
+                            >
+                              Set as Reference
+                            </button>
+                          </div>
                           <span className={`text-sm font-bold ${m.matchPct >= 80 ? 'text-[#22C55E]' : m.matchPct >= 50 ? 'text-[#F59E0B]' : 'text-[#EF4444]'}`}>{m.matchPct}% Match</span>
                         </div>
                         <div className="h-2 w-full bg-[#1A2634] rounded-full overflow-hidden mb-3">

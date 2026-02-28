@@ -62,7 +62,7 @@ export default function Dashboard({ materials, setMaterials, testLogs, setTestLo
   }, [displayMaterials]);
 
   const getHeatmapColor = (val, min, max) => {
-    if (val === undefined || val === null || max === min) return 'bg-[#1A2634] text-[#94A3B8]';
+    if (val === undefined || val === null || max === min) return { bg: '#1A2634', text: '#94A3B8' };
     const normalized = (val - min) / (max - min); // 0 to 1
     
     // Blue (low) -> White (mid) -> Red (high)
