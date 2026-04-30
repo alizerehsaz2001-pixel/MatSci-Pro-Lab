@@ -21,7 +21,21 @@ const SAMPLE_MATERIALS = [
 const SourceBadge = ({ source }) => {
   if (source === 'materialsproject') return <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-900/50 text-blue-200 border border-blue-800">📦 Materials Project</span>;
   if (source === 'nist') return <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-purple-900/50 text-purple-200 border border-purple-800">🏛️ NIST</span>;
-  return <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-gray-800 text-gray-300 border border-gray-700">✏️ Manual</span>;
+  if (source === 'manual') return <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-gray-800 text-gray-300 border border-gray-700">✏️ Manual</span>;
+  
+  const nameMap: any = {
+    matweb: 'MatWeb',
+    springermaterials: 'SpringerMaterials',
+    asm: 'ASM Alloy Center',
+    aflow: 'AFLOW',
+    mdf: 'MDF',
+    htem: 'HTEM',
+    scifinder: 'SciFinder',
+    reaxys: 'Reaxys',
+    google_search: 'Google Search'
+  };
+
+  return <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-indigo-900/50 text-indigo-200 border border-indigo-800">🌐 {nameMap[source] || source}</span>;
 };
 
 const Toast = ({ message, type, onClose }) => {
@@ -58,14 +72,22 @@ const ExternalImportModal = ({ isOpen, onClose, onImport, addToast }) => {
       let data = [];
       
       // Group AI-based search providers
-      if (['google_search', 'nist', 'aflow', 'optimade'].includes(provider)) {
+      const aiProviders = ['google_search', 'matweb', 'nist', 'springermaterials', 'asm', 'aflow', 'mdf', 'htem', 'scifinder', 'reaxys'];
+      
+      if (aiProviders.includes(provider)) {
         // Initialize Gemini with the API Key from environment variables
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         
-        let sourcePrompt = "";
-        if (provider === 'nist') sourcePrompt = "specifically from the NIST (National Institute of Standards and Technology) or JARVIS databases";
+        let sourcePrompt = "from the internet";
+        if (provider === 'matweb') sourcePrompt = "specifically from the MatWeb material property database";
+        else if (provider === 'nist') sourcePrompt = "specifically from the NIST Materials Data (WebBook & dataset)";
+        else if (provider === 'springermaterials') sourcePrompt = "specifically from SpringerMaterials";
+        else if (provider === 'asm') sourcePrompt = "specifically from ASM Alloy Center Database";
         else if (provider === 'aflow') sourcePrompt = "specifically from the AFLOW database";
-        else if (provider === 'optimade') sourcePrompt = "specifically from OPTIMADE-compatible databases";
+        else if (provider === 'mdf') sourcePrompt = "specifically from the Materials Data Facility (MDF)";
+        else if (provider === 'htem') sourcePrompt = "specifically from the HTEM (High-Throughput Experimental Materials Database)";
+        else if (provider === 'scifinder') sourcePrompt = "specifically from SciFinder";
+        else if (provider === 'reaxys') sourcePrompt = "specifically from Reaxys";
         
         const prompt = `Find the material properties for "${query}" ${sourcePrompt}. 
         Return a JSON object with the following fields: 
@@ -184,15 +206,21 @@ const ExternalImportModal = ({ isOpen, onClose, onImport, addToast }) => {
           <button onClick={onClose} className="text-[#94A3B8] hover:text-[#F1F5F9]"><X size={24} /></button>
         </div>
         <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-[#94A3B8] mb-1">Database Provider</label>
               <select value={provider} onChange={e => setProvider(e.target.value)} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none">
-                <option value="google_search">Google Search (AI)</option>
-                <option value="materialsproject">Materials Project</option>
-                <option value="nist">NIST / JARVIS</option>
-                <option value="aflow">AFLOW</option>
-                <option value="optimade">OPTIMADE</option>
+                <option value="materialsproject">📦 Materials Project</option>
+                <option value="matweb">🌐 MatWeb</option>
+                <option value="nist">🏛️ NIST Materials Data</option>
+                <option value="springermaterials">📚 SpringerMaterials</option>
+                <option value="asm">🛠️ ASM Alloy Center</option>
+                <option value="aflow">⚛️ AFLOW</option>
+                <option value="mdf">🗄️ Materials Data Facility (MDF)</option>
+                <option value="htem">🔬 HTEM</option>
+                <option value="scifinder">🧪 SciFinder</option>
+                <option value="reaxys">⚗️ Reaxys</option>
+                <option value="google_search">🔍 Google Search (AI General)</option>
               </select>
             </div>
             <div>
