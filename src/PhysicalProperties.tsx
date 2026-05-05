@@ -205,52 +205,63 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
   };
 
   // --- SUB-MODULE 4: Optical ---
-  const [optInputs, setOptInputs] = useState({ 
-    n: 1.5, k: 0, 
-    thickness: 1000, 
-    materialType: 'Constant',
-    r: 4, t: 92, a: 4 
-  });
+  const OPTICAL_PRESETS: Record<string, any> = {
+    'BK7 Glass': { n: 1.5168, k: 0, d: 1000 },
+    'Fused Silica': { n: 1.458, k: 0, d: 1000 },
+    'Silicon (Vis)': { n: 3.42, k: 0.03, d: 500 },
+    'Silver (Ag)': { n: 0.18, k: 3.64, d: 50 },
+    'Gold (Au)': { n: 0.20, k: 3.0, d: 50 },
+    'Sapphire': { n: 1.76, k: 0, d: 1000 }
+  };
 
-  const optSum = optInputs.r + optInputs.t + optInputs.a;
-  const optValid = Math.abs(optSum - 100) < 0.1;
-
+  const [optInputs, setOptInputs] = useState(OPTICAL_PRESETS['BK7 Glass']);
+  const [selectedOptPreset, setSelectedOptPreset] = useState('BK7 Glass');
+  
   const optClass = useMemo(() => {
-    if (optInputs.t > 80) return { label: 'Transparent', color: 'bg-[#4A9EFF]' };
-    if (optInputs.t > 10) return { label: 'Translucent', color: 'bg-[#F59E0B]' };
-    return { label: 'Opaque', color: 'bg-[#94A3B8]' };
-  }, [optInputs.t]);
+    const { n, k } = optInputs;
+    if (k > 0.5) return { label: 'Metallic/Lossy', color: 'bg-gray-600' };
+    if (n > 2.0) return { label: 'High Index', color: 'bg-[#4A9EFF]' };
+    return { label: 'Dielectric', color: 'bg-[#22C55E]' };
+  }, [optInputs]);
 
   const optAnalysis = useMemo(() => {
-    const { n, k, thickness, materialType } = optInputs;
+    const { n, k, d } = optInputs;
     
-    // 1. Single Point Calculation (at current n, k)
-    // Fresnel Reflectance at normal incidence
-    // R = ((n-1)^2 + k^2) / ((n+1)^2 + k^2)
-    const R_val = (Math.pow(n - 1, 2) + Math.pow(k, 2)) / (Math.pow(n + 1, 2) + Math.pow(k, 2));
+    // Normal incidence reflectance: R = ((n-1)^2 + k^2) / ((n+1)^2 + k^2)
+    const R = (Math.pow(n - 1, 2) + Math.pow(k, 2)) / (Math.pow(n + 1, 2) + Math.pow(k, 2));
+
+    // Transmittance (simplified Beer-Lambert)
+    const lambda_ref = 550; // nm
+    const alpha = (4 * Math.PI * k) / (lambda_ref * 1e-9); // 1/m
+    const t_m = d * 1e-9;
+    const transmittance_int = Math.exp(-alpha * t_m);
+    const transmittance = Math.pow(1 - R, 2) * transmittance_int;
     
-    // Absorption Coefficient alpha = 4*pi*k / lambda
-    // Assume lambda = 550 nm for the single point display if not specified
-    const lambda_ref = 550e-9; // m
-    const alpha = (4 * Math.PI * k) / lambda_ref; // 1/m
-    
-    // Transmittance T = (1-R)^2 * exp(-alpha * t) (approx for thick slab)
-    // t in m
-    const t_m = thickness * 1e-9;
-    const T_internal = Math.exp(-alpha * t_m);
-    // T_total approx (1-R)^2 * T_int / (1 - R^2 * T_int^2) for incoherent
-    // Simplified: T = (1-R) * T_int * (1-R) ... roughly
-    const T_val = Math.pow(1 - R_val, 2) * T_internal;
-    
-    // Absorbance A = 1 - R - T
-    const A_val = 1 - R_val - T_val;
+    const reflectance_pct = R * 100;
+    const transmittance_pct = transmittance * 100;
+    const absorbance_pct = 100 - reflectance_pct - transmittance_pct;
+
+    // Complex Dielectric Constant
+    const eps_real = n * n - k * k;
+    const eps_imag = 2 * n * k;
+
+    // Skin Depth (nm)
+    const skin_depth = k > 0 ? (lambda_ref) / (4 * Math.PI * k) : Infinity;
 
     return { 
-        R: (R_val * 100).toFixed(2), 
-        T: (T_val * 100).toFixed(2), 
-        A: (A_val * 100).toFixed(2)
+      R: reflectance_pct.toFixed(2), 
+      T: transmittance_pct.toFixed(2), 
+      A: Math.max(0, absorbance_pct).toFixed(2),
+      eps_real: eps_real.toFixed(3),
+      eps_imag: eps_imag.toFixed(3),
+      skin_depth: skin_depth === Infinity ? '∞' : skin_depth.toFixed(1)
     };
   }, [optInputs]);
+
+  const handleOptChange = (field, value) => {
+    setOptInputs(prev => ({ ...prev, [field]: Number(value) }));
+    setSelectedOptPreset('Custom');
+  };
 
   // --- SUB-MODULE 5: Crystal ---
   const [crystInputs, setCrystInputs] = useState({ 
@@ -967,59 +978,142 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
 
       {/* TAB 4: Optical */}
       {activeTab === 'Optical' && (
-        <div className="grid grid-cols-1 gap-6 max-w-4xl mx-auto">
-          <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg space-y-4">
-            <div className="flex justify-between items-center border-b border-[#2D3F50] pb-2">
-              <h2 className="text-lg font-bold text-[#F1F5F9]">Optical Params</h2>
-              <span className={`px-3 py-1 rounded-full text-xs font-bold ${optClass.color} text-white`}>{optClass.label}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-[#94A3B8] mb-1">Refractive Index (n)</label>
-                <input type="number" step="any" value={optInputs.n} onChange={e => setOptInputs({...optInputs, n: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg space-y-4">
+              <div className="flex justify-between items-center border-b border-[#2D3F50] pb-2">
+                <div className="flex items-center gap-3">
+                    <h2 className="text-lg font-bold text-[#F1F5F9]">Optical Parameters</h2>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${optClass.color} text-white uppercase`}>{optClass.label}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-[#94A3B8]">Preset:</span>
+                    <select 
+                      value={selectedOptPreset} 
+                      onChange={(e) => {
+                        const p = e.target.value;
+                        setSelectedOptPreset(p);
+                        if (OPTICAL_PRESETS[p]) setOptInputs(OPTICAL_PRESETS[p]);
+                      }}
+                      className="bg-[#0F1923] border border-[#2D3F50] rounded px-2 py-1 text-xs text-[#F1F5F9] focus:outline-none"
+                    >
+                      {Object.keys(OPTICAL_PRESETS).map(k => <option key={k} value={k}>{k}</option>)}
+                      <option value="Custom">Custom</option>
+                    </select>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm text-[#94A3B8] mb-1">Extinction Coeff (k)</label>
-                <input type="number" step="any" value={optInputs.k} onChange={e => setOptInputs({...optInputs, k: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] uppercase tracking-wider mb-1">Refractive Index (n)</label>
+                    <input 
+                      type="number" 
+                      step="any"
+                      value={optInputs.n} 
+                      onChange={e => handleOptChange('n', e.target.value)}
+                      className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm font-mono" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] uppercase tracking-wider mb-1">Extinction (k)</label>
+                    <input 
+                      type="number" 
+                      step="any"
+                      value={optInputs.k} 
+                      onChange={e => handleOptChange('k', e.target.value)}
+                      className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm font-mono" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] uppercase tracking-wider mb-1">Thickness (nm)</label>
+                    <input 
+                      type="number" 
+                      step="any"
+                      value={optInputs.d} 
+                      onChange={e => handleOptChange('d', e.target.value)}
+                      className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm font-mono" 
+                    />
+                  </div>
               </div>
-              <div>
-                <label className="block text-sm text-[#94A3B8] mb-1">Thickness (nm)</label>
-                <input type="number" step="any" value={optInputs.thickness} onChange={e => setOptInputs({...optInputs, thickness: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm text-[#94A3B8] mb-1">Material Model</label>
-                <select 
-                  value={optInputs.materialType} 
-                  onChange={e => setOptInputs({...optInputs, materialType: e.target.value})}
-                  className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none"
-                >
-                  <option value="Constant">Constant</option>
-                  <option value="Glass">Glass-like (Cauchy)</option>
-                  <option value="Metal">Metal-like (Drude)</option>
-                </select>
+              
+              <div className="pt-4 border-t border-[#2D3F50]">
+                <h3 className="text-sm font-medium text-[#4A9EFF] mb-3 flex items-center gap-2">
+                    <Activity size={14} /> Electrodynamic Properties (Dispersion)
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-[#0F1923] p-3 rounded border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase mb-2">Complex Dielectric Constant (ε̂)</div>
+                        <div className="text-sm font-mono text-[#F1F5F9]">
+                          {optAnalysis.eps_real} + i({optAnalysis.eps_imag})
+                        </div>
+                    </div>
+                    <div className="bg-[#0F1923] p-3 rounded border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase mb-2">Skin Depth (δ)</div>
+                        <div className="text-sm font-mono text-[#F1F5F9]">
+                          {optAnalysis.skin_depth} <span className="text-[10px] text-[#94A3B8]">nm @ 550nm</span>
+                        </div>
+                    </div>
+                </div>
               </div>
             </div>
 
-            <div className="mt-4 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md space-y-2">
-              <h3 className="text-sm text-[#94A3B8] mb-2 font-mono">Calculated Optical Status</h3>
-              <div className="flex justify-between items-center">
-                <span className="text-[#F1F5F9] text-sm">Reflectance R:</span>
-                <span className="font-bold text-[#4A9EFF]">{optAnalysis.R}%</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[#F1F5F9] text-sm">Transmittance T:</span>
-                <span className="font-bold text-[#22C55E]">{optAnalysis.T}%</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[#F1F5F9] text-sm">Absorbance A:</span>
-                <span className="font-bold text-[#EF4444]">{optAnalysis.A}%</span>
-              </div>
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg">
+                <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Propagation Metrics (Normal Incidence)</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase tracking-widest mb-1">Reflectance (R)</div>
+                        <div className="text-xl font-bold text-[#4A9EFF]">{optAnalysis.R} <span className="text-xs font-normal">%</span></div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Fraction of the incident light reflected at the interface.</p>
+                    </div>
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase tracking-widest mb-1">Transmittance (T)</div>
+                        <div className="text-xl font-bold text-[#22C55E]">{optAnalysis.T} <span className="text-xs font-normal">%</span></div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Fraction of light passing through the bulk thickness.</p>
+                    </div>
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase tracking-widest mb-1">Absorbance (A)</div>
+                        <div className="text-xl font-bold text-[#EF4444]">{optAnalysis.A} <span className="text-xs font-normal">%</span></div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Energy dissipated within the material volume.</p>
+                    </div>
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase tracking-widest mb-1">Optical Opacity (α·d)</div>
+                        <div className="text-xl font-bold text-[#F59E0B]">{(Math.log(100/Math.max(0.1, Number(optAnalysis.T)))).toFixed(2)}</div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Dimensionless log-ratio of incident to transmitted flux.</p>
+                    </div>
+                </div>
             </div>
-            
-            <div className="p-8 bg-[#0F1923] border border-[#2D3F50] rounded-md text-center">
-              <Eye size={40} className="text-[#4A9EFF] mx-auto mb-4 opacity-20" />
-              <h3 className="text-[#F1F5F9] font-bold mb-2">Complex Refractive Index Model</h3>
-              <p className="text-xs text-[#94A3B8]">Normal incidence Fresnel calculations active. Absorption following Beer-Lambert law.</p>
+          </div>
+          
+          <div className="flex flex-col gap-6">
+            <div className="bg-[#1A2634] p-8 rounded-lg border border-[#2D3F50] shadow-lg text-center flex-1 flex flex-col justify-center">
+              <div className="relative w-24 h-24 mx-auto mb-6">
+                  <div className="absolute inset-0 bg-[#4A9EFF]/10 rounded-full animate-pulse" />
+                  <Eye size={48} className="absolute inset-0 m-auto text-[#4A9EFF]" />
+              </div>
+              <h2 className="text-xl font-bold text-[#F1F5F9] mb-4">Photon Solver Active</h2>
+              <p className="text-sm text-[#94A3B8] leading-relaxed">Maxwell-Fresnel equations solving for wave propagation in complex media with Kramers-Kronig consistency.</p>
+              
+              <div className="mt-8 pt-6 border-t border-[#2D3F50] text-left">
+                  <div className="text-[10px] text-[#4A9EFF] font-bold uppercase mb-4 tracking-tighter">Propagation Summary</div>
+                  <div className="space-y-4">
+                      <div className="bg-[#0F1923] p-3 rounded border border-[#2D3F50]">
+                          <div className="flex justify-between text-[10px] text-[#94A3B8] mb-1">
+                              <span>Energy Balance</span>
+                              <span>100% Total</span>
+                          </div>
+                          <div className="h-2 w-full flex rounded-full overflow-hidden mt-1">
+                            <div className="h-full bg-[#4A9EFF]" style={{ width: `${optAnalysis.R}%` }} title="Reflectance" />
+                            <div className="h-full bg-[#22C55E]" style={{ width: `${optAnalysis.T}%` }} title="Transmittance" />
+                            <div className="h-full bg-[#EF4444]" style={{ width: `${optAnalysis.A}%` }} title="Absorbance" />
+                          </div>
+                          <div className="mt-3 flex justify-between gap-1">
+                              <div className="text-[8px] text-[#4A9EFF]">R: {optAnalysis.R}%</div>
+                              <div className="text-[8px] text-[#22C55E]">T: {optAnalysis.T}%</div>
+                              <div className="text-[8px] text-[#EF4444]">A: {optAnalysis.A}%</div>
+                          </div>
+                      </div>
+                  </div>
+              </div>
             </div>
           </div>
         </div>

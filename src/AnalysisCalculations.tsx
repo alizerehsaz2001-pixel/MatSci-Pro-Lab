@@ -11,17 +11,50 @@ const TABS = [
   { id: 'Failure Analysis', icon: AlertTriangle }
 ];
 
+const FORMULA_CATEGORIES = [
+  'All',
+  'Mechanical',
+  'Thermal',
+  'Crystal & Structural',
+  'Electrical & Magnetic',
+  'Failure & Degradation'
+];
+
 const FORMULAS = [
-  { id: 'stress', name: 'Stress', eq: 'σ = F / A', inputs: [{ key: 'F', label: 'Force F (N)' }, { key: 'A', label: 'Area A (m²)' }], calc: v => v.F / v.A, unit: 'Pa' },
-  { id: 'strain', name: 'Strain', eq: 'ε = ΔL / L₀', inputs: [{ key: 'dL', label: 'Change in Length ΔL' }, { key: 'L0', label: 'Original Length L₀' }], calc: v => v.dL / v.L0, unit: '' },
-  { id: 'youngs', name: 'Young\'s Modulus', eq: 'E = σ / ε', inputs: [{ key: 'sigma', label: 'Stress σ (Pa)' }, { key: 'epsilon', label: 'Strain ε' }], calc: v => v.sigma / v.epsilon, unit: 'Pa' },
-  { id: 'shear', name: 'Shear Modulus', eq: 'G = E / 2(1+ν)', inputs: [{ key: 'E', label: 'Young\'s Modulus E (GPa)' }, { key: 'nu', label: 'Poisson\'s Ratio ν' }], calc: v => v.E / (2 * (1 + v.nu)), unit: 'GPa' },
-  { id: 'bulk', name: 'Bulk Modulus', eq: 'K = E / 3(1-2ν)', inputs: [{ key: 'E', label: 'Young\'s Modulus E (GPa)' }, { key: 'nu', label: 'Poisson\'s Ratio ν' }], calc: v => v.E / (3 * (1 - 2 * v.nu)), unit: 'GPa' },
-  { id: 'thermal_stress', name: 'Thermal Stress', eq: 'σ = E × α × ΔT', inputs: [{ key: 'E', label: 'Modulus E (GPa)' }, { key: 'alpha', label: 'CTE α (1/K)' }, { key: 'dT', label: 'Temp Change ΔT (K)' }], calc: v => v.E * 1000 * v.alpha * v.dT, unit: 'MPa' },
-  { id: 'safety_factor', name: 'Safety Factor', eq: 'SF = σ_yield / σ_applied', inputs: [{ key: 'sy', label: 'Yield Strength (MPa)' }, { key: 'sa', label: 'Applied Stress (MPa)' }], calc: v => v.sy / v.sa, unit: '' },
-  { id: 'density', name: 'Theoretical Density', eq: 'ρ = nM / (NA × Vc)', inputs: [{ key: 'n', label: 'Atoms/Cell n' }, { key: 'M', label: 'Molar Mass M (g/mol)' }, { key: 'Vc', label: 'Cell Volume Vc (cm³)' }], calc: v => (v.n * v.M) / (6.022e23 * v.Vc), unit: 'g/cm³' },
-  { id: 'diffusivity', name: 'Thermal Diffusivity', eq: 'α = k / (ρ × Cp)', inputs: [{ key: 'k', label: 'Thermal Cond. k (W/m·K)' }, { key: 'rho', label: 'Density ρ (kg/m³)' }, { key: 'cp', label: 'Specific Heat Cp (J/kg·K)' }], calc: v => v.k / (v.rho * v.cp), unit: 'm²/s' },
-  { id: 'conductivity', name: 'Conductivity', eq: 'σ = 1 / ρ', inputs: [{ key: 'rho', label: 'Resistivity ρ (Ω·m)' }], calc: v => 1 / v.rho, unit: 'S/m' }
+  // Mechanical
+  { id: 'stress', category: 'Mechanical', name: 'True Stress', eq: 'σ_t = F / A_i', inputs: [{ key: 'F', label: 'Force F (N)' }, { key: 'Ai', label: 'Inst. Area A_i (m²)' }], calc: v => v.F / v.Ai, unit: 'Pa' },
+  { id: 'strain', category: 'Mechanical', name: 'True Strain', eq: 'ε_t = ln(L_i / L_0)', inputs: [{ key: 'Li', label: 'Inst. Length L_i' }, { key: 'L0', label: 'Orig. Length L_0' }], calc: v => Math.log(v.Li / v.L0), unit: '' },
+  { id: 'youngs', category: 'Mechanical', name: 'Young\'s Modulus', eq: 'E = σ / ε', inputs: [{ key: 'sigma', label: 'Stress σ (Pa)' }, { key: 'epsilon', label: 'Strain ε' }], calc: v => v.sigma / v.epsilon, unit: 'Pa' },
+  { id: 'shear', category: 'Mechanical', name: 'Shear Modulus', eq: 'G = E / 2(1+ν)', inputs: [{ key: 'E', label: 'Young\'s Modulus E (GPa)' }, { key: 'nu', label: 'Poisson\'s Ratio ν' }], calc: v => v.E / (2 * (1 + v.nu)), unit: 'GPa' },
+  { id: 'bulk', category: 'Mechanical', name: 'Bulk Modulus', eq: 'K = E / 3(1-2ν)', inputs: [{ key: 'E', label: 'Young\'s Modulus E (GPa)' }, { key: 'nu', label: 'Poisson\'s Ratio ν' }], calc: v => v.E / (3 * (1 - 2 * v.nu)), unit: 'GPa' },
+  { id: 'hooks_spring', category: 'Mechanical', name: 'Spring Force', eq: 'F = -k x', inputs: [{ key: 'k', label: 'Stiffness k (N/m)' }, { key: 'x', label: 'Displacement x (m)' }], calc: v => -(v.k * v.x), unit: 'N' },
+  { id: 'bending_stress', category: 'Mechanical', name: 'Bending Stress', eq: 'σ = M y / I', inputs: [{ key: 'M', label: 'Moment M (N·m)' }, { key: 'y', label: 'Dist. from neutral y (m)' }, { key: 'I', label: 'Moment of Inertia I (m⁴)' }], calc: v => (v.M * v.y) / v.I, unit: 'Pa' },
+  
+  // Thermal
+  { id: 'thermal_stress', category: 'Thermal', name: 'Thermal Stress', eq: 'σ = E × α × ΔT', inputs: [{ key: 'E', label: 'Modulus E (GPa)' }, { key: 'alpha', label: 'CTE α (1/K)' }, { key: 'dT', label: 'Temp Diff ΔT (K)' }], calc: v => v.E * 1000 * v.alpha * v.dT, unit: 'MPa' },
+  { id: 'diffusivity', category: 'Thermal', name: 'Thermal Diffusivity', eq: 'α = k / (ρ × Cp)', inputs: [{ key: 'k', label: 'Thermal Cond. k (W/m·K)' }, { key: 'rho', label: 'Density ρ (kg/m³)' }, { key: 'cp', label: 'Specific Heat Cp (J/kg·K)' }], calc: v => v.k / (v.rho * v.cp), unit: 'm²/s' },
+  { id: 'thermal_expansion', category: 'Thermal', name: 'Linear Expansion', eq: 'ΔL = L₀ × α × ΔT', inputs: [{ key: 'L0', label: 'Orig. Length L₀ (m)' }, { key: 'alpha', label: 'CTE α (1/K)' }, { key: 'dT', label: 'Temp Diff ΔT (K)' }], calc: v => v.L0 * v.alpha * v.dT, unit: 'm' },
+  { id: 'fourier', category: 'Thermal', name: 'Steady Heat Conduction', eq: 'q = -k A (ΔT/Δx)', inputs: [{ key: 'k', label: 'Thermal Cond k (W/m·K)' }, { key: 'A', label: 'Area A (m²)' }, { key: 'dT', label: 'Temp Diff ΔT (K)' }, { key: 'dx', label: 'Thickness Δx (m)' }], calc: v => -(v.k * v.A * (v.dT / v.dx)), unit: 'W' },
+  
+  // Crystal
+  { id: 'density', category: 'Crystal & Structural', name: 'Theoretical Density', eq: 'ρ = nM / (NA × Vc)', inputs: [{ key: 'n', label: 'Atoms/Cell n' }, { key: 'M', label: 'Molar Mass M (g/mol)' }, { key: 'Vc', label: 'Cell Volume Vc (cm³)' }], calc: v => (v.n * v.M) / (6.022e23 * v.Vc), unit: 'g/cm³' },
+  { id: 'bragg', category: 'Crystal & Structural', name: 'Bragg\'s Law (Solve d)', eq: 'd = (nλ) / (2sinθ)', inputs: [{ key: 'n', label: 'Order n' }, { key: 'lambda', label: 'Wavelength λ (nm)' }, { key: 'theta', label: 'Angle θ (deg)' }], calc: v => (v.n * v.lambda) / (2 * Math.sin(v.theta * Math.PI / 180)), unit: 'nm' },
+  { id: 'scherrer', category: 'Crystal & Structural', name: 'Scherrer Equation', eq: 'τ = Kλ / (β cosθ)', inputs: [{ key: 'K', label: 'Shape Factor K (0.9)' }, { key: 'lambda', label: 'Wavelength λ (nm)' }, { key: 'beta', label: 'FWHM β (radians)' }, { key: 'theta', label: 'Bragg Angle θ (deg)' }], calc: v => (v.K * v.lambda) / (v.beta * Math.cos(v.theta * Math.PI / 180)), unit: 'nm' },
+  { id: 'planar_density', category: 'Crystal & Structural', name: 'Planar Density', eq: 'PD = n / A', inputs: [{ key: 'n', label: 'Atoms on Plane n' }, { key: 'A', label: 'Area of Plane A (nm²)' }], calc: v => v.n / v.A, unit: 'atoms/nm²' },
+
+  // Elec Mag
+  { id: 'conductivity', category: 'Electrical & Magnetic', name: 'Conductivity', eq: 'σ = 1 / ρ', inputs: [{ key: 'rho', label: 'Resistivity ρ (Ω·m)' }], calc: v => 1 / v.rho, unit: 'S/m' },
+  { id: 'hall', category: 'Electrical & Magnetic', name: 'Hall Temp Coeff', eq: 'R_H = 1 / (n q)', inputs: [{ key: 'n', label: 'Carrier Density n (m⁻³)' }, { key: 'q', label: 'Charge q (C)' }], calc: v => 1 / (v.n * v.q), unit: 'm³/C' },
+  { id: 'drift_velocity', category: 'Electrical & Magnetic', name: 'Drift Velocity', eq: 'v_d = μ E', inputs: [{ key: 'mu', label: 'Mobility μ (m²/V·s)' }, { key: 'E', label: 'Electric Field E (V/m)' }], calc: v => v.mu * v.E, unit: 'm/s' },
+  { id: 'magnetic_induction', category: 'Electrical & Magnetic', name: 'Magnetic Induction', eq: 'B = μ (H + M)', inputs: [{ key: 'mu', label: 'Permeability μ (H/m)' }, { key: 'H', label: 'Mag. Field H (A/m)' }, { key: 'M', label: 'Magnetization M (A/m)' }], calc: v => v.mu * (v.H + v.M), unit: 'T' },
+  { id: 'skin_depth', category: 'Electrical & Magnetic', name: 'Skin Depth', eq: 'δ = √(2 / ωμσ)', inputs: [{ key: 'f', label: 'Frequency f (Hz)' }, { key: 'mu', label: 'Permeability μ (H/m)' }, { key: 'sigma', label: 'Conductivity σ (S/m)' }], calc: v => Math.sqrt(2 / ((2 * Math.PI * v.f) * v.mu * v.sigma)), unit: 'm' },
+
+  // Failure
+  { id: 'safety_factor', category: 'Failure & Degradation', name: 'Safety Factor', eq: 'SF = σ_y / σ_app', inputs: [{ key: 'sy', label: 'Yield Strength (MPa)' }, { key: 'sa', label: 'Applied Stress (MPa)' }], calc: v => v.sy / v.sa, unit: '' },
+  { id: 'fracture_toughness', category: 'Failure & Degradation', name: 'Fracture Toughness', eq: 'K_Ic = Y σ √(π a)', inputs: [{ key: 'Y', label: 'Geometry Factor Y' }, { key: 'sigma', label: 'Stress σ (MPa)' }, { key: 'a', label: 'Flaw Size a (m)' }], calc: v => v.Y * v.sigma * Math.sqrt(Math.PI * v.a), unit: 'MPa·m^0.5' },
+  { id: 'vickers', category: 'Failure & Degradation', name: 'Vickers Hardness', eq: 'HV = 1.8544 F / d²', inputs: [{ key: 'F', label: 'Force F (kgf)' }, { key: 'd', label: 'Diagonal d (mm)' }], calc: v => (1.8544 * v.F) / (v.d * v.d), unit: 'HV' },
+  { id: 'paris_law', category: 'Failure & Degradation', name: 'Paris Law (Fatigue)', eq: 'da/dN = C (ΔK)ᵐ', inputs: [{ key: 'C', label: 'Constant C' }, { key: 'dK', label: 'Stress Int. Range ΔK' }, { key: 'm', label: 'Exponent m' }], calc: v => v.C * Math.pow(v.dK, v.m), unit: 'm/cycle' },
+  { id: 'weibull_survival', category: 'Failure & Degradation', name: 'Weibull Reliability', eq: 'R(t) = exp(-(t/η)ᵐ)', inputs: [{ key: 't', label: 'Time/Cycles t' }, { key: 'eta', label: 'Char. Life η' }, { key: 'm', label: 'Shape Param m' }], calc: v => Math.exp(-Math.pow(v.t / v.eta, v.m)), unit: '' }
 ];
 
 const FA_QUESTIONS = [
@@ -145,6 +178,9 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
           if (input.key === 'k' && mat.thermalConductivity) {
             newInputs[formula.id] = { ...newInputs[formula.id], [input.key]: mat.thermalConductivity };
           }
+          if (input.key === 'alpha' && mat.cte) {
+            newInputs[formula.id] = { ...newInputs[formula.id], [input.key]: mat.cte / 1e6 }; // Convert from µm/m·K to 1/K
+          }
           if (input.key === 'sigma' && mat.yieldStrength) {
             // Default stress to yield strength for safety factor or youngs
             newInputs[formula.id] = { ...newInputs[formula.id], [input.key]: mat.yieldStrength * 1e6 }; // MPa to Pa
@@ -220,16 +256,40 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
   // --- SUB-MODULE 1: Calculators ---
   const [calcInputs, setCalcInputs] = useState({});
   const [calcResults, setCalcResults] = useState({});
+  const [calcCategory, setCalcCategory] = useState('All');
 
   const handleCalcInput = (calcId, key, value) => {
     setCalcInputs(prev => ({ ...prev, [calcId]: { ...prev[calcId], [key]: Number(value) } }));
+    
+    // Auto-calculate if all inputs are present
+    const formula = FORMULAS.find(f => f.id === calcId);
+    if (formula) {
+      const inputs = { ...(calcInputs[calcId] || {}), [key]: Number(value) };
+      const allPresent = formula.inputs.every(inp => inputs[inp.key] !== undefined && !isNaN(inputs[inp.key]));
+      if (allPresent) {
+        try {
+          const res = formula.calc(inputs);
+          setCalcResults(prev => ({ 
+            ...prev, 
+            [calcId]: isNaN(res) || !isFinite(res) ? 'Error' : 
+              Math.abs(res) > 1e6 || (Math.abs(res) < 1e-4 && Math.abs(res) > 0) ? res.toExponential(4).replace(/e\+?0?(\d+)/, ' x 10^$1').replace(/e-0?(\d+)/, ' x 10^-$1') : parseFloat(res.toFixed(4))
+          }));
+        } catch (e) {
+          setCalcResults(prev => ({ ...prev, [calcId]: 'Error' }));
+        }
+      }
+    }
   };
 
   const runCalc = (calcId, calcFn) => {
     try {
       const inputs = calcInputs[calcId] || {};
       const res = calcFn(inputs);
-      setCalcResults(prev => ({ ...prev, [calcId]: isNaN(res) || !isFinite(res) ? 'Error' : res.toExponential(4).replace(/e\+?0?/, ' x 10^') }));
+      setCalcResults(prev => ({ 
+        ...prev, 
+        [calcId]: isNaN(res) || !isFinite(res) ? 'Error' : 
+          Math.abs(res) > 1e6 || (Math.abs(res) < 1e-4 && Math.abs(res) > 0) ? res.toExponential(4).replace(/e\+?0?(\d+)/, ' x 10^$1').replace(/e-0?(\d+)/, ' x 10^-$1') : parseFloat(res.toFixed(4))
+      }));
     } catch (e) {
       setCalcResults(prev => ({ ...prev, [calcId]: 'Error' }));
     }
@@ -671,43 +731,64 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
       <div className="flex-1">
         {/* TAB 1: Universal Calculator */}
         {activeTab === 'Universal Calculator' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {FORMULAS.map(form => (
-              <div key={form.id} className="bg-[#1A2634] p-5 rounded-lg border border-[#2D3F50] shadow-lg flex flex-col">
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="font-bold text-[#F1F5F9]">{form.name}</h3>
-                  <span className="text-xs font-mono bg-[#0F1923] px-2 py-1 rounded text-[#4A9EFF] border border-[#2D3F50]">{form.eq}</span>
-                </div>
-                <div className="space-y-3 flex-1">
-                  {form.inputs.map(inp => (
-                    <div key={inp.key}>
-                      <label className="block text-xs text-[#94A3B8] mb-1">{inp.label}</label>
-                      <input 
-                        type="number" 
-                        step="any"
-                        value={calcInputs[form.id]?.[inp.key] || ''}
-                        onChange={e => handleCalcInput(form.id, inp.key, e.target.value)}
-                        className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" 
-                      />
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-wrap gap-2">
+              {FORMULA_CATEGORIES.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setCalcCategory(cat)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${calcCategory === cat ? 'bg-[#4A9EFF] text-white' : 'bg-[#2D3F50] text-[#94A3B8] hover:bg-[#3E5C76]'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {FORMULAS.filter(f => calcCategory === 'All' || f.category === calcCategory).map(form => (
+                <div key={form.id} className="bg-[#1A2634] p-5 rounded-lg border border-[#2D3F50] shadow-lg flex flex-col hover:border-[#4A9EFF]/50 transition-colors">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 className="font-bold text-[#F1F5F9]">{form.name}</h3>
+                        <span className="text-[10px] text-[#94A3B8] uppercase tracking-wider">{form.category}</span>
                     </div>
-                  ))}
-                </div>
-                <div className="mt-4 pt-4 border-t border-[#2D3F50] flex items-center justify-between">
-                  <button 
-                    onClick={() => runCalc(form.id, form.calc)}
-                    className="bg-[#2D3F50] hover:bg-[#4A9EFF] text-white px-4 py-1.5 rounded-md text-sm transition-colors"
-                  >
-                    Calculate
-                  </button>
-                  <div className="text-right">
-                    <div className="text-xs text-[#94A3B8]">Result</div>
-                    <div className="font-bold text-[#F1F5F9]">
-                      {calcResults[form.id] !== undefined ? `${calcResults[form.id]} ${form.unit}` : '--'}
+                    <span className="text-xs font-mono bg-[#0F1923] px-2 py-1 rounded text-[#4A9EFF] border border-[#2D3F50]">{form.eq}</span>
+                  </div>
+                  <div className="space-y-3 flex-1 mb-4">
+                    {form.inputs.map(inp => (
+                      <div key={inp.key}>
+                        <label className="block text-[10px] uppercase text-[#94A3B8] mb-1">{inp.label}</label>
+                        <input 
+                          type="number" 
+                          step="any"
+                          value={calcInputs[form.id]?.[inp.key] === undefined ? '' : calcInputs[form.id]?.[inp.key]}
+                          onChange={e => handleCalcInput(form.id, inp.key, e.target.value)}
+                          className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm font-mono" 
+                          placeholder="0.00"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-auto pt-4 border-t border-[#2D3F50] flex items-center justify-between">
+                    <button 
+                      onClick={() => runCalc(form.id, form.calc)}
+                      className="text-xs bg-[#2D3F50] hover:bg-[#4A9EFF] text-white px-3 py-1.5 rounded transition-colors"
+                    >
+                      Compute
+                    </button>
+                    <div className="text-right">
+                      <div className="text-[10px] text-[#94A3B8] uppercase">Result</div>
+                      <div className={`font-bold font-mono text-lg ${calcResults[form.id] === 'Error' ? 'text-[#EF4444]' : 'text-[#22C55E]'}`}>
+                        {calcResults[form.id] !== undefined ? (
+                          calcResults[form.id] === 'Error' ? 'Error' : 
+                          <>{calcResults[form.id]} <span className="text-xs text-[#94A3B8] font-sans">{form.unit}</span></>
+                        ) : '--'}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
 
