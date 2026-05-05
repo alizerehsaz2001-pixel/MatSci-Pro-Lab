@@ -1,12 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { AlertTriangle, Plus, Info, Zap, Thermometer, Magnet, Eye, Box, Activity } from 'lucide-react';
+import { AlertTriangle, Plus, Info, Zap, Thermometer, Magnet, Eye, Box, Activity, Waves, Share2, Radiation } from 'lucide-react';
 
 const TABS = [
   { id: 'Thermal', icon: Thermometer },
   { id: 'Electrical', icon: Zap },
   { id: 'Magnetic', icon: Magnet },
   { id: 'Optical', icon: Eye },
-  { id: 'Crystal', icon: Box }
+  { id: 'Crystal', icon: Box },
+  { id: 'Acoustic', icon: Waves },
+  { id: 'Diffusion', icon: Share2 },
+  { id: 'Radiation', icon: Radiation }
 ];
 
 const CRYSTAL_PRESETS = {
@@ -262,6 +265,118 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
     setOptInputs(prev => ({ ...prev, [field]: Number(value) }));
     setSelectedOptPreset('Custom');
   };
+
+  // --- SUB-MODULE 4.5: Acoustic ---
+  const ACOUSTIC_PRESETS: Record<string, any> = {
+    'Steel': { rho: 7850, E: 200, nu: 0.3, G: 77 },
+    'Aluminum': { rho: 2700, E: 70, nu: 0.33, G: 26 },
+    'Copper': { rho: 8960, E: 110, nu: 0.34, G: 48 },
+    'Diamond': { rho: 3510, E: 1220, nu: 0.2, G: 520 },
+    'Lead': { rho: 11340, E: 16, nu: 0.44, G: 5.6 },
+    'Water': { rho: 1000, E: 2.2, nu: 0.499, G: 0 } // Bulk modulus used as E for fluids approx
+  };
+
+  const [acouInputs, setAcouInputs] = useState(ACOUSTIC_PRESETS['Steel']);
+  const [selectedAcouPreset, setSelectedAcouPreset] = useState('Steel');
+
+  const acouAnalysis = useMemo(() => {
+    const { rho, E, nu } = acouInputs;
+    const E_pa = E * 1e9;
+    
+    // Bulk Modulus: K = E / 3(1-2nu)
+    const K = E_pa / (3 * (1 - 2 * nu));
+    // Shear Modulus: G = E / 2(1+nu)
+    const G = E_pa / (2 * (1 + nu));
+    // Longitudinal (P-wave) Modulus: M = K + 4/3 * G
+    const M = K + (4/3) * G;
+
+    // Velocities (m/s)
+    const vL = rho > 0 ? Math.sqrt(M / rho) : 0;
+    const vT = rho > 0 ? Math.sqrt(G / rho) : 0;
+    
+    // Acoustic Impedance: Z = rho * vL (kg/m2s or Rayl)
+    const Z = rho * vL;
+
+    return {
+        K: (K / 1e9).toFixed(1),
+        G: (G / 1e9).toFixed(1),
+        vL: Math.round(vL),
+        vT: Math.round(vT),
+        Z: (Z / 1e6).toFixed(2)
+    };
+  }, [acouInputs]);
+
+  // --- SUB-MODULE 4.6: Diffusion ---
+  const DIFFUSION_PRESETS: Record<string, any> = {
+    'C in bcc-Fe': { d0: 1.1e-6, q: 80, t: 912 },
+    'C in fcc-Fe': { d0: 2.3e-5, q: 148, t: 1000 },
+    'Fe in fcc-Fe (Self)': { d0: 6.5e-5, q: 279, t: 1200 },
+    'Cu in Al': { d0: 6.5e-5, q: 136, t: 500 },
+    'Ni in Cu': { d0: 2.7e-4, q: 236, t: 1000 }
+  };
+
+  const [diffInputs, setDiffInputs] = useState(DIFFUSION_PRESETS['C in bcc-Fe']);
+  const [selectedDiffPreset, setSelectedDiffPreset] = useState('C in bcc-Fe');
+
+  const diffAnalysis = useMemo(() => {
+    const { d0, q, t } = diffInputs;
+    const R = 8.314; // J/mol·K
+    const T_k = t + 273.15;
+    
+    // D = D0 * exp(-Q / RT)
+    // Q in kJ/mol => multiply by 1000
+    const D = d0 * Math.exp(-(q * 1000) / (R * T_k));
+    
+    // Characteristic Diffusion Distance after 1 hour (sqrt(4Dt))
+    const dist_1h = Math.sqrt(4 * D * 3600);
+
+    return {
+        D: D.toExponential(3),
+        dist_1h: (dist_1h * 1e6).toFixed(2) // micrometers
+    };
+  }, [diffInputs]);
+
+  // --- SUB-MODULE 4.7: Radiation ---
+  const RADIATION_PRESETS: Record<string, any> = {
+    'Lead (Pb)': { rho: 11340, muray: 0.071, energy: 1.0, x: 10 },
+    'Concrete': { rho: 2400, muray: 0.064, energy: 1.0, x: 100 },
+    'Iron (Fe)': { rho: 7870, muray: 0.059, energy: 1.0, x: 20 },
+    'Water': { rho: 1000, muray: 0.070, energy: 1.0, x: 300 },
+    'Aluminum (Al)': { rho: 2700, muray: 0.061, energy: 1.0, x: 50 }
+  };
+
+  const [radInputs, setRadInputs] = useState(RADIATION_PRESETS['Lead (Pb)']);
+  const [selectedRadPreset, setSelectedRadPreset] = useState('Lead (Pb)');
+
+  const radAnalysis = useMemo(() => {
+    const { rho, muray, x } = radInputs;
+    
+    // muray is in cm2/g
+    // rho in kg/m3 => divide by 1000 for g/cm3
+    const rho_gcc = rho / 1000;
+    
+    // Linear attenuation mu (1/cm)
+    const mu = muray * rho_gcc;
+    
+    // Transmission T = exp(-mu * x) where x is in mm
+    // Convert x (mm) to cm: x_cm = x / 10
+    const x_cm = x / 10;
+    const transmission = Math.exp(-mu * x_cm);
+    
+    // Half Value Layer (cm)
+    const HVL = mu > 0 ? Math.log(2) / mu : 0;
+    
+    // Tenth Value Layer (cm)
+    const TVL = mu > 0 ? Math.log(10) / mu : 0;
+
+    return {
+        mu: mu.toFixed(3),
+        transmission: (transmission * 100).toFixed(2),
+        HVL_mm: (HVL * 10).toFixed(1),
+        TVL_mm: (TVL * 10).toFixed(1),
+        attenuation: ((1 - transmission) * 100).toFixed(2)
+    };
+  }, [radInputs]);
 
   // --- SUB-MODULE 5: Crystal ---
   const [crystInputs, setCrystInputs] = useState({ 
@@ -1233,6 +1348,263 @@ export default function PhysicalProperties({ materials, setMaterials, testLogs, 
                     {renderUnitCell()}
                 </div>
                 <p className="text-xs text-[#94A3B8] mt-4">Theoretical peaks simulated based on Bragg's law for {crystInputs.sys} system.</p>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 6: Acoustic */}
+      {activeTab === 'Acoustic' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg space-y-4">
+              <div className="flex justify-between items-center border-b border-[#2D3F50] pb-2">
+                <h2 className="text-lg font-bold text-[#F1F5F9]">Acoustic Parameters</h2>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-[#94A3B8]">Preset:</span>
+                    <select 
+                      value={selectedAcouPreset} 
+                      onChange={(e) => {
+                        const p = e.target.value;
+                        setSelectedAcouPreset(p);
+                        if (ACOUSTIC_PRESETS[p]) setAcouInputs(ACOUSTIC_PRESETS[p]);
+                      }}
+                      className="bg-[#0F1923] border border-[#2D3F50] rounded px-2 py-1 text-xs text-[#F1F5F9] focus:outline-none"
+                    >
+                      {Object.keys(ACOUSTIC_PRESETS).map(k => <option key={k} value={k}>{k}</option>)}
+                      <option value="Custom">Custom</option>
+                    </select>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] uppercase mb-1">Density ρ (kg/m³)</label>
+                    <input type="number" value={acouInputs.rho} onChange={e => {setAcouInputs({...acouInputs, rho: Number(e.target.value)}); setSelectedAcouPreset('Custom');}} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded px-3 py-2 text-sm text-[#F1F5F9] focus:outline-none focus:border-[#4A9EFF]" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] uppercase mb-1">Young's Mod. E (GPa)</label>
+                    <input type="number" value={acouInputs.E} onChange={e => {setAcouInputs({...acouInputs, E: Number(e.target.value)}); setSelectedAcouPreset('Custom');}} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded px-3 py-2 text-sm text-[#F1F5F9] focus:outline-none focus:border-[#4A9EFF]" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] uppercase mb-1">Poisson's Ratio ν</label>
+                    <input type="number" step="0.01" value={acouInputs.nu} onChange={e => {setAcouInputs({...acouInputs, nu: Number(e.target.value)}); setSelectedAcouPreset('Custom');}} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded px-3 py-2 text-sm text-[#F1F5F9] focus:outline-none focus:border-[#4A9EFF]" />
+                  </div>
+              </div>
+
+              <div className="p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md grid grid-cols-2 gap-4">
+                <div>
+                    <div className="text-[10px] text-[#94A3B8] uppercase mb-1">Bulk Modulus (K)</div>
+                    <div className="text-lg font-bold text-[#4A9EFF]">{acouAnalysis.K} GPa</div>
+                </div>
+                <div>
+                    <div className="text-[10px] text-[#94A3B8] uppercase mb-1">Shear Modulus (G)</div>
+                    <div className="text-lg font-bold text-[#F59E0B]">{acouAnalysis.G} GPa</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg">
+                <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Elastic Wave Propagation</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase mb-1 italic">Longitudinal Velocity (v_L)</div>
+                        <div className="text-2xl font-bold text-[#4A9EFF]">{acouAnalysis.vL} <span className="text-xs font-normal">m/s</span></div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Pressure wave speed in the bulk material.</p>
+                    </div>
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase mb-1 italic">Transverse Velocity (v_T)</div>
+                        <div className="text-2xl font-bold text-[#22C55E]">{acouAnalysis.vT} <span className="text-xs font-normal">m/s</span></div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Shear wave speed (secondary wave).</p>
+                    </div>
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase mb-1 italic">Acoustic Impedance (Z)</div>
+                        <div className="text-2xl font-bold text-[#F59E0B]">{acouAnalysis.Z} <span className="text-xs font-normal">MRayl</span></div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Interface resistance to wave transmission.</p>
+                    </div>
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase mb-1 italic">Refraction Index (Acoustic)</div>
+                        <div className="text-2xl font-bold text-[#EF4444]">{(343 / Math.max(1, acouAnalysis.vL)).toFixed(3)}</div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Relative to speed of sound in air (343 m/s).</p>
+                    </div>
+                </div>
+            </div>
+          </div>
+
+          <div className="bg-[#1A2634] p-8 rounded-lg border border-[#2D3F50] shadow-lg text-center flex flex-col justify-center">
+             <div className="relative w-24 h-24 mx-auto mb-6">
+                <div className="absolute inset-0 bg-[#4A9EFF]/10 rounded-full animate-ping" />
+                <Waves size={48} className="absolute inset-0 m-auto text-[#4A9EFF]" />
+             </div>
+             <h2 className="text-xl font-bold text-[#F1F5F9] mb-4 font-mono uppercase tracking-widest">Acoustic Solver</h2>
+             <p className="text-sm text-[#94A3B8] leading-relaxed mb-6">Analyzing phonon group velocities and elastic tensor projections for wave propagation in isotropic media.</p>
+             <div className="space-y-3 text-left bg-[#0F1923] p-4 rounded border border-[#2D3F50]">
+                <div className="flex justify-between text-xs">
+                    <span className="text-[#94A3B8]">Wavelength (1kHz):</span>
+                    <span className="text-[#F1F5F9] font-mono">{(acouAnalysis.vL / 1000).toFixed(2)} m</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                    <span className="text-[#94A3B8]">Mach Number (vL):</span>
+                    <span className="text-[#F1F5F9] font-mono">{(acouAnalysis.vL / 343).toFixed(1)}M</span>
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 7: Diffusion */}
+      {activeTab === 'Diffusion' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg space-y-4">
+              <div className="flex justify-between items-center border-b border-[#2D3F50] pb-2">
+                <h2 className="text-lg font-bold text-[#F1F5F9]">Atomic Diffusion</h2>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-[#94A3B8]">Preset:</span>
+                    <select 
+                      value={selectedDiffPreset} 
+                      onChange={(e) => {
+                        const p = e.target.value;
+                        setSelectedDiffPreset(p);
+                        if (DIFFUSION_PRESETS[p]) setDiffInputs(DIFFUSION_PRESETS[p]);
+                      }}
+                      className="bg-[#0F1923] border border-[#2D3F50] rounded px-2 py-1 text-xs text-[#F1F5F9] focus:outline-none"
+                    >
+                      {Object.keys(DIFFUSION_PRESETS).map(k => <option key={k} value={k}>{k}</option>)}
+                      <option value="Custom">Custom</option>
+                    </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] uppercase mb-1">Pre-exp D₀ (m²/s)</label>
+                    <input type="number" step="any" value={diffInputs.d0} onChange={e => {setDiffInputs({...diffInputs, d0: Number(e.target.value)}); setSelectedDiffPreset('Custom');}} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded px-3 py-2 text-sm text-[#F1F5F9] focus:outline-none focus:border-[#4A9EFF] font-mono" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] uppercase mb-1">Activation En. Q (kJ/mol)</label>
+                    <input type="number" step="any" value={diffInputs.q} onChange={e => {setDiffInputs({...diffInputs, q: Number(e.target.value)}); setSelectedDiffPreset('Custom');}} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded px-3 py-2 text-sm text-[#F1F5F9] focus:outline-none focus:border-[#4A9EFF] font-mono" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] uppercase mb-1">Temp T (°C)</label>
+                    <input type="number" step="any" value={diffInputs.t} onChange={e => {setDiffInputs({...diffInputs, t: Number(e.target.value)}); setSelectedDiffPreset('Custom');}} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded px-3 py-2 text-sm text-[#F1F5F9] focus:outline-none focus:border-[#4A9EFF] font-mono" />
+                  </div>
+              </div>
+            </div>
+
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg">
+                <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Calculated Transport Rates</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase mb-1 italic">Diffusivity (D)</div>
+                        <div className="text-2xl font-bold text-[#4A9EFF]">{diffAnalysis.D} <span className="text-xs font-normal">m²/s</span></div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Arrhenius-governed atomic migration rate.</p>
+                    </div>
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase mb-1 italic">Diffusion Distance (1 hour)</div>
+                        <div className="text-2xl font-bold text-[#22C55E]">{diffAnalysis.dist_1h} <span className="text-xs font-normal">μm</span></div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Average penetration depth x ≈ √(4Dt).</p>
+                    </div>
+                </div>
+            </div>
+          </div>
+
+          <div className="bg-[#1A2634] p-8 rounded-lg border border-[#2D3F50] shadow-lg text-center flex flex-col justify-center">
+             <div className="mx-auto mb-6 p-4 bg-[#0F1923] rounded-full border border-[#2D3F50]">
+                <Share2 size={48} className="text-[#4A9EFF]" />
+             </div>
+             <h2 className="text-xl font-bold text-[#F1F5F9] mb-4 font-mono uppercase tracking-widest">Kinetics Engine</h2>
+             <p className="text-sm text-[#94A3B8] leading-relaxed mb-6">Thermal activation solver computing vacancy migration, interstitial hopping, and grain boundary transport flux.</p>
+             <div className="mt-auto space-y-4">
+                <div className="h-2 w-full bg-[#0F1923] rounded-full overflow-hidden border border-[#2D3F50]">
+                    <div className="h-full bg-gradient-to-r from-[#4A9EFF] to-[#22C55E] animate-pulse" style={{ width: '60%' }} />
+                </div>
+                <div className="text-[10px] text-[#94A3B8] uppercase text-center">Fick's Second Law Analysis In-Progress</div>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 8: Radiation */}
+      {activeTab === 'Radiation' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg space-y-4">
+              <div className="flex justify-between items-center border-b border-[#2D3F50] pb-2">
+                <h2 className="text-lg font-bold text-[#F1F5F9]">Radiation Interaction</h2>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-[#94A3B8]">Preset:</span>
+                    <select 
+                      value={selectedRadPreset} 
+                      onChange={(e) => {
+                        const p = e.target.value;
+                        setSelectedRadPreset(p);
+                        if (RADIATION_PRESETS[p]) setRadInputs(RADIATION_PRESETS[p]);
+                      }}
+                      className="bg-[#0F1923] border border-[#2D3F50] rounded px-2 py-1 text-xs text-[#F1F5F9] focus:outline-none"
+                    >
+                      {Object.keys(RADIATION_PRESETS).map(k => <option key={k} value={k}>{k}</option>)}
+                      <option value="Custom">Custom</option>
+                    </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] uppercase mb-1">Density ρ (kg/m³)</label>
+                    <input type="number" value={radInputs.rho} onChange={e => {setRadInputs({...radInputs, rho: Number(e.target.value)}); setSelectedRadPreset('Custom');}} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded px-3 py-1.5 text-xs text-[#F1F5F9] focus:outline-none focus:border-[#4A9EFF]" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] uppercase mb-1">μ/ρ (cm²/g)</label>
+                    <input type="number" step="any" value={radInputs.muray} onChange={e => {setRadInputs({...radInputs, muray: Number(e.target.value)}); setSelectedRadPreset('Custom');}} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded px-3 py-1.5 text-xs text-[#F1F5F9] focus:outline-none focus:border-[#4A9EFF]" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] uppercase mb-1">Shield Thickness (mm)</label>
+                    <input type="number" step="any" value={radInputs.x} onChange={e => {setRadInputs({...radInputs, x: Number(e.target.value)}); setSelectedRadPreset('Custom');}} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded px-3 py-1.5 text-xs text-[#F1F5F9] focus:outline-none focus:border-[#4A9EFF]" />
+                  </div>
+              </div>
+            </div>
+
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg">
+                <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Shielding Effectiveness</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase mb-1 italic">Linear Attenuation (μ)</div>
+                        <div className="text-2xl font-bold text-[#4A9EFF]">{radAnalysis.mu} <span className="text-xs font-normal">cm⁻¹</span></div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Probability of interaction per unit path length.</p>
+                    </div>
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase mb-1 italic">Photon Transmission (I/I₀)</div>
+                        <div className="text-2xl font-bold text-[#22C55E]">{radAnalysis.transmission} <span className="text-xs font-normal">%</span></div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Fraction of photons penetrating the shield.</p>
+                    </div>
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase mb-1 italic">Half-Value Layer (HVL)</div>
+                        <div className="text-2xl font-bold text-[#F59E0B]">{radAnalysis.HVL_mm} <span className="text-xs font-normal">mm</span></div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Thickness required to reduce intensity by 50%.</p>
+                    </div>
+                    <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
+                        <div className="text-[10px] text-[#94A3B8] uppercase mb-1 italic">Tenth-Value Layer (TVL)</div>
+                        <div className="text-2xl font-bold text-[#EF4444]">{radAnalysis.TVL_mm} <span className="text-xs font-normal">mm</span></div>
+                        <p className="text-[10px] text-[#64748B] mt-2 italic">Thickness required to reduce intensity by 90%.</p>
+                    </div>
+                </div>
+            </div>
+          </div>
+
+          <div className="bg-[#1A2634] p-8 rounded-lg border border-[#2D3F50] shadow-lg text-center flex flex-col justify-center">
+             <div className="mx-auto mb-6 relative">
+                <div className="absolute inset-0 bg-[#EF4444]/20 rounded-full animate-pulse border border-[#EF4444]/50" />
+                <Radiation size={48} className="relative text-[#EF4444] m-4" />
+             </div>
+             <h2 className="text-xl font-bold text-[#F1F5F9] mb-4 font-mono uppercase tracking-widest">Radiological Engine</h2>
+             <p className="text-sm text-[#94A3B8] leading-relaxed mb-6">Monte Carlo approximations for photon scattering and absorption cross-sections (Compton/Photoelectric).</p>
+             <div className="bg-[#B91C1C]/10 border border-[#B91C1C]/30 p-3 rounded text-left">
+                <div className="text-[10px] text-[#EF4444] font-bold uppercase mb-1">Shield Integrity</div>
+                <div className="text-xs text-[#FCA5A5]">Total Attenuation: {radAnalysis.attenuation}%</div>
+                <div className="mt-2 h-1.5 w-full bg-[#2D3F50] rounded-full overflow-hidden">
+                    <div className="h-full bg-[#EF4444]" style={{ width: `${radAnalysis.attenuation}%` }} />
+                </div>
              </div>
           </div>
         </div>
