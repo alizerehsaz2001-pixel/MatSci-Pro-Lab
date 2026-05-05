@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Search, Plus, Download, Upload, SlidersHorizontal, Trash2, Edit, X, AlertTriangle, ChevronLeft, ChevronRight, BarChart2, CheckSquare, Square, Globe } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Search, Plus, Download, Upload, SlidersHorizontal, Trash2, Edit, X, AlertTriangle, ChevronLeft, ChevronRight, BarChart2, CheckSquare, Square, Globe, Activity } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 
 const CATEGORIES = ["Metals & Alloys", "Polymers", "Ceramics", "Composites", "Semiconductors", "Biomaterials"];
@@ -615,30 +614,16 @@ export default function MaterialsDatabase({ materials, setMaterials, testLogs, s
               <button onClick={() => setShowCompare(false)} className="text-[#94A3B8] hover:text-[#F1F5F9]"><X size={24} /></button>
             </div>
             <div className="p-6 overflow-y-auto flex-1">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                <div className="h-64 bg-[#0F1923] p-4 rounded-lg border border-[#2D3F50]">
-                  <h3 className="text-sm font-medium text-[#94A3B8] mb-4 text-center">Yield Strength (MPa)</h3>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={materials.filter(m => compareIds.includes(m.id))}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                      <XAxis dataKey="name" stroke="#94A3B8" fontSize={12} />
-                      <YAxis stroke="#94A3B8" fontSize={12} />
-                      <Tooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} />
-                      <Bar dataKey="yieldStrength" fill="#4A9EFF" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="h-64 bg-[#0F1923] p-4 rounded-lg border border-[#2D3F50]">
-                  <h3 className="text-sm font-medium text-[#94A3B8] mb-4 text-center">Density (g/cm³)</h3>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={materials.filter(m => compareIds.includes(m.id))}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                      <XAxis dataKey="name" stroke="#94A3B8" fontSize={12} />
-                      <YAxis stroke="#94A3B8" fontSize={12} />
-                      <Tooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} />
-                      <Bar dataKey="density" fill="#F59E0B" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+              <div className="bg-[#0F1923] p-8 rounded-lg border border-[#2D3F50] mb-8 text-center flex flex-col items-center">
+                <Activity size={48} className="text-[#4A9EFF] mb-4 opacity-20" />
+                <h3 className="text-xl font-bold text-[#F1F5F9] mb-2 font-mono">Comparison Engine Active</h3>
+                <p className="text-sm text-[#94A3B8] max-w-lg mb-6">Pro Calculator mode active. Visual charts have been disabled for direct matrix analysis. Compare up to 4 materials using the refined data grid below.</p>
+                <div className="flex gap-4">
+                   {materials.filter(m => compareIds.includes(m.id)).map(m => (
+                     <div key={m.id} className="px-3 py-1 bg-[#1A2634] border border-[#2D3F50] rounded text-xs text-[#4A9EFF] font-bold">
+                       {m.name}
+                     </div>
+                   ))}
                 </div>
               </div>
 

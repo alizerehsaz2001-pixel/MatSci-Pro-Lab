@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
-import { TrendingUp, TrendingDown, Database, Activity, FileText, Search, X, Medal, Clock, Plus, CheckCircle, ChevronRight, Zap, FlaskConical, AlertTriangle, ArrowUpRight, ArrowDownRight, MoreHorizontal, Filter } from 'lucide-react';
+import { TrendingUp, TrendingDown, Database, Activity, FileText, Search, X, Medal, Clock, Plus, CheckCircle, ChevronRight, Zap, FlaskConical, AlertTriangle, ArrowUpRight, ArrowDownRight, MoreHorizontal, Filter, Layers } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 const SAMPLE_MATERIALS = [
@@ -234,38 +233,27 @@ export default function Dashboard({ materials, setMaterials, testLogs, setTestLo
               {displayMaterials.length} Total
             </div>
           </div>
-          <div className="flex-1 min-h-[250px] relative">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={categoryData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {categoryData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <RechartsTooltip 
-                  contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9', borderRadius: '8px' }}
-                  itemStyle={{ color: '#F1F5F9' }}
-                />
-                <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', color: '#94A3B8' }} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none pb-8">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-[#F1F5F9]">{displayMaterials.length}</div>
-                <div className="text-[10px] text-[#94A3B8] uppercase tracking-wider">Items</div>
-              </div>
-            </div>
+          <div className="flex-1 space-y-4 py-4">
+             {categoryData.map((item: any, idx) => (
+                <div key={item.name} className="flex flex-col gap-1.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#94A3B8] font-medium">{item.name}</span>
+                    <span className="text-[#F1F5F9] font-bold">{item.value}</span>
+                  </div>
+                  <div className="h-1.5 w-full bg-[#0F1923] rounded-full overflow-hidden">
+                    <div 
+                      className="h-full rounded-full transition-all duration-1000 ease-out" 
+                      style={{ 
+                        width: `${(Number(item.value) / displayMaterials.length) * 100}%`,
+                        backgroundColor: COLORS[idx % COLORS.length]
+                      }} 
+                    />
+                  </div>
+                </div>
+             ))}
           </div>
-          <div className="text-xs text-[#94A3B8] text-center mt-2 flex items-center justify-center gap-1">
-            <Clock size={12} /> Last updated: Just now
+          <div className="text-xs text-[#94A3B8] text-center mt-4 pt-4 border-t border-[#2D3F50] flex items-center justify-center gap-1">
+            <Clock size={12} /> Database Registry Status: Synchronized
           </div>
         </div>
 
@@ -347,32 +335,42 @@ export default function Dashboard({ materials, setMaterials, testLogs, setTestLo
           </div>
         </div>
         
-        <div className="h-[400px] w-full">
+        <div className="bg-[#0F1923] border border-[#2D3F50] rounded-lg overflow-hidden">
           {radarSelected.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                <PolarGrid stroke="#2D3F50" />
-                <PolarAngleAxis dataKey="subject" tick={{ fill: '#94A3B8', fontSize: 12 }} />
-                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: '#94A3B8', fontSize: 10 }} stroke="#2D3F50" />
-                <RechartsTooltip 
-                  contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9', borderRadius: '8px' }}
-                />
-                <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                {displayMaterials.filter(m => radarSelected.includes(m.id)).map((m, idx) => (
-                  <Radar 
-                    key={m.id}
-                    name={m.name} 
-                    dataKey={m.name} 
-                    stroke={RADAR_COLORS[idx % RADAR_COLORS.length]} 
-                    fill={RADAR_COLORS[idx % RADAR_COLORS.length]} 
-                    fillOpacity={0.3} 
-                  />
-                ))}
-              </RadarChart>
-            </ResponsiveContainer>
+            <div className="overflow-x-auto scrollbar-hide">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead className="bg-[#1A2634]/50 text-[#94A3B8]">
+                  <tr>
+                    <th className="p-4 font-medium border-b border-[#2D3F50]">Parameter</th>
+                    {displayMaterials.filter(m => radarSelected.includes(m.id)).map((m, idx) => (
+                      <th key={m.id} className="p-4 font-bold border-b border-[#2D3F50]" style={{ color: RADAR_COLORS[idx % RADAR_COLORS.length] }}>
+                        {m.name}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#2D3F50]">
+                  {[
+                    { key: 'yieldStrength', label: 'Strength (MPa)' },
+                    { key: 'youngsModulus', label: 'Stiffness (GPa)' },
+                    { key: 'hardness', label: 'Hardness (HV)' },
+                    { key: 'thermalConductivity', label: 'Thermal (W/mK)' },
+                    { key: 'density', label: 'Density (g/cm³)' }
+                  ].map(p => (
+                    <tr key={p.key} className="hover:bg-[#2D3F50]/30 transition-colors">
+                      <td className="p-4 text-[#94A3B8] font-medium">{p.label}</td>
+                      {displayMaterials.filter(m => radarSelected.includes(m.id)).map(m => (
+                        <td key={m.id} className="p-4 font-mono text-[#F1F5F9]">{m[p.key] || '-'}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
-            <div className="h-full flex items-center justify-center text-[#94A3B8]">
-              Select materials to compare
+            <div className="h-[300px] flex flex-col items-center justify-center text-[#94A3B8] p-8 text-center">
+              <Layers size={48} className="mb-4 opacity-10" />
+              <p>Select materials from the filter menu to generate a Pro Comparison Matrix.</p>
             </div>
           )}
         </div>

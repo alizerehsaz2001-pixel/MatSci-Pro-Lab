@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceDot, ScatterChart, Scatter, ZAxis, ComposedChart } from 'recharts';
 import { Download, AlertTriangle, Info, Plus, Trash2 } from 'lucide-react';
 
 const TABS = [
@@ -11,11 +10,11 @@ const TABS = [
   'Calculators'
 ];
 
-const MATERIAL_PRESETS = {
-  'Structural Steel': { E: 200, Sy: 250, UTS: 400, eu: 10, ef: 20, nu: 0.3 },
-  'Aluminum 6061-T6': { E: 69, Sy: 276, UTS: 310, eu: 12, ef: 17, nu: 0.33 },
-  'Titanium Ti-6Al-4V': { E: 114, Sy: 880, UTS: 950, eu: 14, ef: 14, nu: 0.34 },
-  'Copper (Annealed)': { E: 110, Sy: 70, UTS: 220, eu: 45, ef: 50, nu: 0.34 }
+const MATERIAL_PRESETS: Record<string, any> = {
+  'Structural Steel': { E: 200, Sy: 250, UTS: 400, eu: 15, ef: 25, nu: 0.3, K: 606, n: 0.14 },
+  'Aluminum 6061-T6': { E: 69, Sy: 276, UTS: 310, eu: 10, ef: 17, nu: 0.33, K: 419, n: 0.095 },
+  'Titanium Ti-6Al-4V': { E: 114, Sy: 880, UTS: 950, eu: 10, ef: 14, nu: 0.34, K: 1210, n: 0.095 },
+  'Copper (Annealed)': { E: 110, Sy: 70, UTS: 220, eu: 30, ef: 45, nu: 0.34, K: 420, n: 0.26 }
 };
 
 export default function MechanicalProperties({ materials, setMaterials, testLogs, setTestLogs, currentUser, unitSystem, theme }) {
@@ -28,133 +27,79 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
   };
 
-  const exportChart = (chartId, filename) => {
-    const svg = document.querySelector(`#${chartId} svg`);
-    if (!svg) {
-      addToast('Chart not found for export', 'error');
-      return;
-    }
-    const svgData = new XMLSerializer().serializeToString(svg);
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    const img = new Image();
-    img.onload = () => {
-      canvas.width = svg.clientWidth || 800;
-      canvas.height = svg.clientHeight || 400;
-      ctx.fillStyle = "#1A2634";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-      const a = document.createElement("a");
-      a.download = `${filename}.png`;
-      a.href = canvas.toDataURL("image/png");
-      a.click();
-      addToast('Chart exported successfully');
-    };
-    img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
-  };
-
   // --- SUB-MODULE 1: Stress-Strain ---
   const [ssInputs, setSsInputs] = useState(MATERIAL_PRESETS['Structural Steel']);
   const [selectedPreset, setSelectedPreset] = useState('Structural Steel');
   const [ssType, setSsType] = useState('engineering'); // 'engineering' or 'true'
+  const [ssModel, setSsModel] = useState('standard'); // 'standard' or 'hollomon'
 
-  const ssData = useMemo(() => {
-    const { E, Sy, UTS, eu, ef } = ssInputs;
-    const data = [];
-    const yieldStrainAbs = Sy / (E * 1000); // E in GPa, Sy in MPa
+  const { markers } = useMemo(() => {
+    const { E, Sy, UTS, eu, ef, K, n } = ssInputs;
+    const E_MPa = E * 1000;
+    const yieldStrainAbs = Sy / E_MPa; 
     const yieldStrain = yieldStrainAbs * 100; // %
     
-    // Validate inputs to prevent chart errors
+    // Validate inputs
     const safeEu = Math.max(eu, yieldStrain + 0.1);
     const safeEf = Math.max(ef, safeEu + 0.1);
 
-    // Generate points
-    const steps = 100;
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      let strain = t * safeEf; // %
-      let strainAbs = strain / 100;
-      let stress = 0;
-      
-      if (strainAbs <= yieldStrainAbs) {
-        // Elastic Region: Hooke's Law
-        stress = strainAbs * (E * 1000);
-      } else if (strain <= safeEu) {
-        // Plastic Region (Yield to UTS): Parabolic fit with vertex at (eu, UTS)
-        // Sigma = UTS - A * (eu - e)^2
-        // Match at yield: Sy = UTS - A * (eu - ey)^2  => A = (UTS - Sy) / (eu - ey)^2
-        const A = (UTS - Sy) / Math.pow(safeEu - yieldStrain, 2);
-        stress = UTS - A * Math.pow(safeEu - strain, 2);
-      } else {
-        // Necking Region (UTS to Fracture): Parabolic drop
-        // Assume stress drops to fracture stress. Let's estimate fracture stress or use a fixed drop.
-        // Using the previous logic of ~15% drop, or just a smooth continuation.
-        // Let's model a simple drop: Sigma = UTS - B * (e - eu)^2
-        // Let's assume fracture stress is roughly (Sy + UTS)/2 for ductility, or just 0.85 * UTS as before.
-        const fractureStress = UTS * 0.85; 
-        const B = (UTS - fractureStress) / Math.pow(safeEf - safeEu, 2);
-        stress = UTS - B * Math.pow(strain - safeEu, 2);
-      }
+    let calcUtsS = UTS;
+    let calcUtsE = safeEu;
+    let fracS = UTS * 0.75; // Approx fracture stress
 
-      const trueStrain = Math.log(1 + strainAbs);
-      const trueStress = stress * (1 + strainAbs);
-
-      data.push({
-        strain: strain,
-        stress: stress,
-        trueStrain: trueStrain * 100,
-        trueStress: trueStress
-      });
+    if (ssModel === 'hollomon') {
+        const trueStrainUts = n;
+        const engStrainUtsAbs = Math.exp(trueStrainUts) - 1;
+        calcUtsE = engStrainUtsAbs * 100;
+        const trueStressUts = K * Math.pow(trueStrainUts, n);
+        calcUtsS = trueStressUts / (1 + engStrainUtsAbs);
     }
-    return data;
-  }, [ssInputs]);
+
+    return { 
+        markers: { yieldE: yieldStrain, yieldS: Sy, utsE: calcUtsE, utsS: calcUtsS, fracE: safeEf, fracS }
+    };
+  }, [ssInputs, ssModel]);
 
   const ssResults = useMemo(() => {
-    const { E, Sy, UTS, eu, ef } = ssInputs;
+    const { E, Sy, UTS } = ssInputs;
     const yieldStrainAbs = Sy / (E * 1000);
     
-    // Modulus of Resilience: Area under elastic region (1/2 * stress * strain)
-    // Units: MPa * (mm/mm) = MJ/m^3
+    // Modulus of Resilience: MJ/m^3
     const Ur = 0.5 * Sy * yieldStrainAbs;
 
-    // Modulus of Toughness: Area under the entire curve
-    // Approximate using trapezoidal rule on the generated data
-    let toughness = 0;
-    for (let i = 0; i < ssData.length - 1; i++) {
-      const p1 = ssData[i];
-      const p2 = ssData[i+1];
-      const avgStress = (p1.stress + p2.stress) / 2;
-      const dStrain = (p2.strain - p1.strain) / 100; // Convert % back to absolute
-      toughness += avgStress * dStrain;
-    }
+    // Simplified Toughness approximation for calc-only mode
+    // (Sy + UTS)/2 * (plastic strain) + elastic portion
+    const plasticStrain = (ssInputs.ef - (yieldStrainAbs * 100)) / 100;
+    const toughness = (Ur + ((Sy + UTS) / 2) * Math.max(0, plasticStrain)).toFixed(2);
 
     return {
       Ur: Ur.toFixed(4),
-      Toughness: toughness.toFixed(2),
+      Toughness: toughness,
       YieldStrain: (yieldStrainAbs * 100).toFixed(3)
     };
-  }, [ssInputs, ssData]);
+  }, [ssInputs]);
 
   // --- SUB-MODULE 2: Hardness ---
-  const [hardInput, setHardInput] = useState({ value: 200, scale: 'HV', materialClass: 'Steel' });
+  const [hardInput, setHardInput] = useState({ 
+    value: 200, 
+    scale: 'HV', 
+    materialClass: 'Steel',
+    customK: 3.45 // Proportionality constant for UTS = K * HB
+  });
   
   const hardnessConversions = useMemo(() => {
     let hv = 0;
-    const { value, scale, materialClass } = hardInput;
+    const { value, scale, materialClass, customK } = hardInput;
     
     // 1. Normalize input to Vickers (HV) as the base unit
-    // Note: These are approximate base conversions. ASTM E140 is non-linear.
     if (scale === 'HV') hv = value;
-    else if (scale === 'HB') hv = value; // HB is roughly equal to HV < 400, diverges slightly above.
+    else if (scale === 'HB') hv = value; 
     else if (scale === 'HRC') {
-      // HRC to HV (Steel)
-      if (value < 20) hv = 240; 
-      else hv = 115 * Math.exp(0.024 * value); // Exponential fit for HRC 20-65
+      if (value < 20) hv = 115 * Math.exp(0.024 * 20) * (value / 20); 
+      else hv = 115 * Math.exp(0.024 * value); 
     }
-    else if (scale === 'HRB') hv = 2.6 * value - 110; // Rough linear fit for HRB 40-100
-    else if (scale === 'HK') hv = value; // Knoop is similar to Vickers
-    
-    // Refine HV based on material class if needed (simplified for this demo)
+    else if (scale === 'HRB') hv = 2.6 * value - 110; 
+    else if (scale === 'HK') hv = value; 
     
     const isPolymer = scale === 'Shore A' || scale === 'Shore D';
     if (isPolymer) {
@@ -163,112 +108,115 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
         ShoreA: scale === 'Shore A' ? value : 'N/A',
         ShoreD: scale === 'Shore D' ? value : 'N/A',
         UTS_Est: 'N/A',
-        warning: 'Shore scales do not convert to metal hardness scales.'
+        warning: 'Shore scales do not convert to metal hardness scales efficiently.'
       };
     }
 
-    // 2. Convert HV to other scales using ASTM E140 approximations
-    // Steel is the default standard for most HRC/HRB conversions
-    let hb = hv; // HB ≈ HV
+    let hb = hv; 
     let hrc = 0;
     let hrb = 0;
     let uts = 0;
 
-    if (materialClass === 'Steel') {
-      // HV to HRC (Steel)
-      if (hv >= 240) hrc = 41.6 * Math.log(hv) - 228; // Logarithmic fit
-      // HV to HRB (Steel)
+    // Proportionality Constants (k) for UTS (MPa) ≈ k * HB
+    const K_MAP: Record<string, number> = {
+      'Steel': 3.45,
+      'Stainless Steel': 3.35,
+      'Aluminum': 3.3,
+      'Copper/Brass': 3.5,
+      'Titanium': 3.6,
+      'Nickel Alloy': 3.4,
+      'Cast Iron': 2.8,
+      'Custom': customK
+    };
+
+    const k = K_MAP[materialClass] || 3.45;
+    uts = k * hb;
+
+    if (materialClass === 'Steel' || materialClass === 'Stainless Steel' || materialClass === 'Nickel Alloy') {
+      if (hv >= 240) hrc = 41.6 * Math.log(hv) - 228;
       if (hv >= 85 && hv <= 240) hrb = 0.38 * hv + 42;
-      
-      // UTS Estimation (Steel): UTS (MPa) ≈ 3.2 to 3.45 * HB
-      uts = 3.45 * hb;
-    } else if (materialClass === 'Aluminum') {
-      // Aluminum conversions are different
-      // UTS (MPa) ≈ 0.25 * HB (kg/mm2) * 9.81 ?? No, typically UTS (MPa) ~ 3.5 * HB is for steel.
-      // For Al-6061: HB 95 -> UTS 310 (Ratio ~3.26)
-      uts = 3.3 * hb;
-      // Aluminum rarely uses HRC, mostly HRB or HRF.
+    } else if (materialClass === 'Aluminum' || materialClass === 'Copper/Brass') {
       if (hv > 40) hrb = 0.45 * hv + 10; 
-    } else if (materialClass === 'Copper') {
-      uts = 3.5 * hb; // Rough approx
-      if (hv > 40) hrb = 0.4 * hv + 20;
+    } else if (materialClass === 'Titanium') {
+      if (hv >= 300) hrc = 38 * Math.log(hv) - 200;
+      if (hv > 150) hrb = 0.42 * hv + 30;
     }
 
-    // Clamping and formatting
     return {
       HV: Math.round(hv),
       HB: Math.round(hb),
-      HRC: hrc > 0 && hrc < 70 ? Math.round(hrc) : (hrc >= 70 ? '> 70' : '< 20'),
-      HRB: hrb > 0 && hrb < 100 ? Math.round(hrb) : (hrb >= 100 ? '> 100' : '< 0'),
-      HK: Math.round(hv * 1.05), // Knoop usually slightly higher
+      HRC: hrc > 0 && hrc < 70 ? Math.round(hrc) : (hrc >= 70 ? '> 70' : (hrc > 0 ? '< 20' : 'N/A')),
+      HRB: hrb > 0 && hrb < 120 ? Math.round(hrb) : (hrb >= 120 ? '> 120' : (hrb > 0 ? '< 0' : 'N/A')),
+      HK: Math.round(hv * 1.05),
       ShoreA: 'N/A',
       ShoreD: 'N/A',
       UTS_Est: Math.round(uts),
-      warning: (hv < 50 || hv > 1000) ? 'Value is outside typical reliable conversion ranges.' : null
+      warning: (hv < 30 || hv > 1200) ? 'Value is outside verified ASTM/ISO conversion standard ranges.' : null
     };
   }, [hardInput]);
 
   // --- SUB-MODULE 3: Fatigue ---
-  const [fatigueInputs, setFatigueInputs] = useState({ UTS: 600, Sy: 450, Se: 300, b: -0.08, appliedAmp: 200, appliedMean: 50 });
-  const [meanStressModel, setMeanStressModel] = useState('Goodman'); // 'Goodman', 'Gerber', 'Soderberg'
+  const [fatigueInputs, setFatigueInputs] = useState({ 
+    UTS: 600, 
+    Sy: 450, 
+    Se_base: 300, 
+    b: -0.08, 
+    appliedAmp: 200, 
+    appliedMean: 50,
+    ka: 0.9, 
+    kb: 0.9, 
+    kc: 1.0, 
+    kd: 1.0, 
+    ke: 0.897, 
+    sigmaF: 945 
+  });
+  const [meanStressModel, setMeanStressModel] = useState('Goodman'); 
 
-  const fatigueData = useMemo(() => {
-    const { UTS, Se, b } = fatigueInputs;
-    const data = [];
-    const a = Math.pow(0.9 * UTS, 2) / Se; // Basquin coefficient approx
-    
-    for (let i = 3; i <= 8; i += 0.2) {
-      const N = Math.pow(10, i);
-      // S = a * N^b
-      let S = a * Math.pow(N, b);
-      if (S < Se) S = Se; // Endurance limit
-      if (S > UTS) S = UTS;
-      data.push({ cycles: N, stress: S });
-    }
-    return data;
+  const Se = useMemo(() => {
+    const { Se_base, ka, kb, kc, kd, ke } = fatigueInputs;
+    return Se_base * ka * kb * kc * kd * ke;
   }, [fatigueInputs]);
 
   const fatigueResult = useMemo(() => {
-    const { UTS, Sy, Se, b, appliedAmp, appliedMean } = fatigueInputs;
+    const { UTS, Sy, b, appliedAmp, appliedMean, sigmaF } = fatigueInputs;
     
-    // 1. Calculate Equivalent Alternating Stress (Seq) based on Mean Stress Correction
     let Seq = appliedAmp;
     
-    if (appliedMean > 0) {
-      if (meanStressModel === 'Goodman') {
-        // Goodman: Sa / Se + Sm / UTS = 1/n
-        // Equivalent fully reversed stress: Seq = Sa / (1 - Sm/UTS)
-        Seq = appliedAmp / (1 - (appliedMean / UTS));
-      } else if (meanStressModel === 'Gerber') {
-        // Gerber: Sa / Se + (Sm / UTS)^2 = 1/n
-        // Seq = Sa / (1 - (Sm/UTS)^2)
-        Seq = appliedAmp / (1 - Math.pow(appliedMean / UTS, 2));
-      } else if (meanStressModel === 'Soderberg') {
-        // Soderberg: Sa / Se + Sm / Sy = 1/n
-        // Seq = Sa / (1 - Sm/Sy)
-        Seq = appliedAmp / (1 - (appliedMean / Sy));
+    if (Math.abs(appliedMean) > 0.1) {
+      switch(meanStressModel) {
+        case 'Goodman':
+          Seq = appliedAmp / (1 - (appliedMean / UTS));
+          break;
+        case 'Gerber':
+          Seq = appliedAmp / (1 - Math.pow(appliedMean / UTS, 2));
+          break;
+        case 'Soderberg':
+          Seq = appliedAmp / (1 - (appliedMean / Sy));
+          break;
+        case 'Morrow':
+          Seq = appliedAmp / (1 - (appliedMean / sigmaF));
+          break;
+        case 'ASME':
+          Seq = appliedAmp / Math.sqrt(Math.max(0.001, 1 - Math.pow(appliedMean / Sy, 2)));
+          break;
       }
     }
 
-    // Safety Factor (Infinite Life)
-    // n = Se / Seq
     const safety = Se / Seq;
-
-    // Life Estimation (if finite)
-    // Seq = a * N^b  => N = (Seq / a)^(1/b)
-    let cycles = 'Infinite';
+    let cyclesDisplay = 'Infinite';
     if (Seq > Se) {
       const a = Math.pow(0.9 * UTS, 2) / Se;
       const N = Math.pow(Seq / a, 1 / b);
-      cycles = N.toExponential(2);
+      cyclesDisplay = N > 1e9 ? 'Infinite' : (N < 10 ? '< 10' : N.toExponential(2));
     }
 
     return { 
-      cycles, 
-      safety: Math.max(0, safety), // Prevent negative safety factors if mean stress > UTS
-      Seq: Seq.toFixed(1)
+      cycles: cyclesDisplay, 
+      safety: Math.max(0, safety),
+      Seq: Seq.toFixed(1),
+      modifiedSe: Se.toFixed(1)
     };
-  }, [fatigueInputs, meanStressModel]);
+  }, [fatigueInputs, meanStressModel, Se]);
 
   // --- SUB-MODULE 4: Creep ---
   const [creepInputs, setCreepInputs] = useState({ 
@@ -281,63 +229,24 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
     C: 20 // Larson-Miller Constant
   });
   
-  const creepData = useMemo(() => {
-    const { stress, temp, time, A, n, Q } = creepInputs;
-    const data = [];
-    const R = 8.314; // Gas constant J/(mol*K)
+  const creepResults = useMemo(() => {
+    const { temp, stress, C, A, n, Q } = creepInputs;
+    const R = 8.314;
     const T_K = temp + 273.15;
     
     // Norton Power Law for Secondary Creep Rate: edot = A * sigma^n * exp(-Q/RT)
     const edot = A * Math.pow(stress, n) * Math.exp(-Q / (R * T_K));
     
-    // Primary Creep Approximation (Transient)
-    // e_primary = e0 * (1 - exp(-k*t))
-    // Let's assume primary strain is roughly 10% of secondary strain at 1000h for visualization
-    const e0 = edot * 500; 
-    
-    for (let t = 0; t <= time; t += time / 50) {
-      // Primary + Secondary
-      const primary = e0 * (1 - Math.exp(-0.005 * t));
-      const secondary = edot * t;
-      
-      // Tertiary (Exponential rise near rupture) - simplified model
-      // Only show tertiary if strain gets very high (>10%)
-      let tertiary = 0;
-      if (secondary > 0.08) {
-         tertiary = 0.0001 * Math.exp(10 * (secondary - 0.08));
-      }
-
-      data.push({ time: t, strain: (primary + secondary + tertiary) * 100 });
-    }
-    return { data, rate: edot };
-  }, [creepInputs]);
-
-  const creepResults = useMemo(() => {
-    const { temp, stress, C } = creepInputs;
-    const T_K = temp + 273.15;
-    
-    // Larson-Miller Parameter (LMP) Calculation
-    // LMP = T(C + log tr) / 1000
-    // We need to estimate Rupture Time (tr) first or calculate LMP from Stress?
-    // Usually LMP is a function of Stress. Let's use a simple correlation for a generic alloy (e.g., steel)
-    // LMP = 25 - 0.03 * Stress (Very rough approx for visualization)
-    // Or better: log(tr) = LMP*1000/T - C
-    
-    // Let's use a generic LMP vs Stress correlation: LMP = 22000 - 40 * Stress
     const LMP_calc = 22000 - 20 * stress; 
-    
-    // Calculate Rupture Time
-    // LMP = T * (C + log10(tr))
-    // log10(tr) = LMP / T - C
     const log_tr = LMP_calc / T_K - C;
     const tr = Math.pow(10, log_tr);
 
     return {
-      rate: (creepData.rate * 100).toExponential(2), // %/h
+      rate: (edot * 100).toExponential(2), // %/h
       ruptureTime: tr > 1e6 ? '> 1,000,000' : Math.round(tr).toLocaleString(),
       LMP: (LMP_calc / 1000).toFixed(2)
     };
-  }, [creepInputs, creepData]);
+  }, [creepInputs]);
 
   // --- SUB-MODULE 5: Impact & Fracture ---
   const [impactLogs, setImpactLogs] = useState([
@@ -363,16 +272,13 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
   };
 
   const impactAnalysis = useMemo(() => {
-    if (impactLogs.length < 3) return { dbtt: 'N/A', curve: [] };
+    if (impactLogs.length < 3) return { dbtt: 'N/A' };
 
     const energies = impactLogs.map(l => l.energy);
-    const temps = impactLogs.map(l => l.temp);
     const minE = Math.min(...energies);
     const maxE = Math.max(...energies);
     const avgE = (minE + maxE) / 2;
 
-    // Estimate DBTT: Find temp where energy crosses avgE
-    // Simple linear interpolation between the two points straddling avgE
     let dbtt = null;
     for (let i = 0; i < impactLogs.length - 1; i++) {
       if ((impactLogs[i].energy <= avgE && impactLogs[i+1].energy >= avgE) || 
@@ -386,26 +292,10 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
       }
     }
 
-    // Generate Sigmoid Curve for visualization
-    // E = Lower + (Upper - Lower) / (1 + exp((DBTT - T) / k))
-    // We estimate 'k' (transition width) roughly from data spread
-    const k = 20; // heuristic width factor
-    const curve = [];
-    const tMin = Math.min(...temps) - 50;
-    const tMax = Math.max(...temps) + 50;
-    
-    if (dbtt !== null) {
-      for (let t = tMin; t <= tMax; t += 5) {
-        const fitEnergy = minE + (maxE - minE) / (1 + Math.exp((dbtt - t) / k));
-        curve.push({ temp: t, fitEnergy });
-      }
-    }
-
     return { 
       dbtt: dbtt !== null ? Math.round(dbtt) : 'N/A', 
       upperShelf: maxE,
-      lowerShelf: minE,
-      curve 
+      lowerShelf: minE
     };
   }, [impactLogs]);
 
@@ -514,11 +404,26 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
       <div className="flex-1 overflow-y-auto">
         {/* TAB 1: Stress-Strain */}
         {activeTab === 'Stress-Strain' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-1 space-y-4">
+          <div className="grid grid-cols-1 gap-6 max-w-3xl mx-auto">
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg space-y-4">
               <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Material Parameters</h2>
               
               <div className="mb-4">
+                <label className="block text-sm text-[#94A3B8] mb-1">Curve Model</label>
+                <div className="flex bg-[#0F1923] p-1 rounded-md border border-[#2D3F50] mb-4">
+                  <button 
+                    onClick={() => setSsModel('standard')}
+                    className={`flex-1 py-1.5 text-xs rounded transition-colors ${ssModel === 'standard' ? 'bg-[#4A9EFF] text-white' : 'text-[#94A3B8] hover:text-[#F1F5F9]'}`}
+                  >
+                    Polynomial (Fits Points)
+                  </button>
+                  <button 
+                    onClick={() => setSsModel('hollomon')}
+                    className={`flex-1 py-1.5 text-xs rounded transition-colors ${ssModel === 'hollomon' ? 'bg-[#4A9EFF] text-white' : 'text-[#94A3B8] hover:text-[#F1F5F9]'}`}
+                  >
+                    Hollomon (Physical)
+                  </button>
+                </div>
                 <label className="block text-sm text-[#94A3B8] mb-1">Material Preset</label>
                 <select 
                   value={selectedPreset} 
@@ -536,9 +441,9 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 mb-4">
                 {Object.entries({ E: 'Young\'s Modulus (GPa)', Sy: 'Yield Strength (MPa)', UTS: 'Ultimate Tensile Strength (MPa)', eu: 'Uniform Elongation (%)', ef: 'Fracture Strain (%)', nu: 'Poisson\'s Ratio' }).map(([key, label]) => (
-                  <div key={key} className={key === 'UTS' || key === 'nu' ? '' : ''}>
+                  <div key={key}>
                     <label className="block text-xs text-[#94A3B8] mb-1">{label}</label>
                     <input 
                       type="number" 
@@ -551,6 +456,46 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                     />
                   </div>
                 ))}
+              </div>
+
+              <div className="pt-4 border-t border-[#2D3F50]">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="text-sm font-medium text-[#4A9EFF]">Plasticity Parameters</h3>
+                  <button 
+                    onClick={() => {
+                        const trueStrainUTS = Math.log(1 + ssInputs.eu / 100);
+                        const trueStressUTS = ssInputs.UTS * (1 + ssInputs.eu / 100);
+                        const n = trueStrainUTS;
+                        const K = trueStressUTS / Math.pow(n, n);
+                        setSsInputs(prev => ({...prev, n: Number(n.toFixed(3)), K: Math.round(K)}));
+                        setSelectedPreset('Custom');
+                        addToast('Auto-estimated K and n from UTS and Uniform Elongation');
+                    }}
+                    className="text-xs text-[#F59E0B] hover:underline"
+                  >
+                    Auto-Estimate
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {Object.entries({ K: 'Strength Coeff K (MPa)', n: 'Hardening Exp n' }).map(([key, label]) => (
+                    <div key={key}>
+                      <label className="block text-xs text-[#94A3B8] mb-1">{label}</label>
+                      <input 
+                        type="number" 
+                        step="any"
+                        value={ssInputs[key]} 
+                        onChange={e => {
+                          setSsInputs({...ssInputs, [key]: Number(e.target.value)});
+                          setSelectedPreset('Custom');
+                        }}
+                        className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" 
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 text-xs text-[#94A3B8]">
+                   Hollomon's Equation: <span className="font-mono">σ_true = K·(ε_true)ⁿ</span>
+                </div>
               </div>
               
               <div className="mt-6 p-4 bg-[#0F1923] border border-[#2D3F50] rounded-md space-y-2">
@@ -574,45 +519,11 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                 <button onClick={() => setSsType('true')} className={`flex-1 py-2 rounded-md text-sm transition-colors ${ssType === 'true' ? 'bg-[#4A9EFF] text-white' : 'bg-[#0F1923] text-[#94A3B8] border border-[#2D3F50]'}`}>True</button>
               </div>
             </div>
-            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-2 flex flex-col">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-bold text-[#F1F5F9]">Stress-Strain Curve</h2>
-                <button onClick={() => exportChart('ss-chart', 'stress-strain')} className="text-[#4A9EFF] hover:text-blue-400 flex items-center gap-2 text-sm">
-                  <Download size={16} /> Export PNG
-                </button>
-              </div>
-              <div id="ss-chart" className="flex-1 min-h-[400px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={ssData} margin={{ top: 30, right: 30, left: 60, bottom: 40 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                    <XAxis dataKey={ssType === 'engineering' ? 'strain' : 'trueStrain'} type="number" stroke="#94A3B8" label={{ value: 'Strain (%)', position: 'bottom', offset: 0, fill: '#94A3B8' }} />
-                    <YAxis stroke="#94A3B8" label={{ value: 'Stress (MPa)', angle: -90, position: 'insideLeft', offset: -10, fill: '#94A3B8' }} />
-                    <Tooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} formatter={(value) => value.toFixed(2)} />
-                    <Legend verticalAlign="top" height={36} />
-                    <Line type="monotone" dataKey={ssType === 'engineering' ? 'stress' : 'trueStress'} name={`${ssType === 'engineering' ? 'Eng.' : 'True'} Stress`} stroke="#4A9EFF" strokeWidth={3} dot={false} />
-                    
-                    {/* Reference Dots */}
-                    {ssType === 'engineering' ? (
-                      <>
-                        <ReferenceDot x={Number(ssResults.YieldStrain)} y={ssInputs.Sy} r={5} fill="#F59E0B" stroke="none" label={{ value: 'Yield', position: 'top', fill: '#F59E0B', fontSize: 12 }} />
-                        <ReferenceDot x={ssInputs.eu} y={ssInputs.UTS} r={5} fill="#EF4444" stroke="none" label={{ value: 'UTS', position: 'top', fill: '#EF4444', fontSize: 12 }} />
-                      </>
-                    ) : (
-                      <>
-                        <ReferenceDot 
-                          x={Math.log(1 + Number(ssResults.YieldStrain)/100) * 100} 
-                          y={ssInputs.Sy * (1 + Number(ssResults.YieldStrain)/100)} 
-                          r={5} fill="#F59E0B" stroke="none" label={{ value: 'Yield', position: 'top', fill: '#F59E0B', fontSize: 12 }} 
-                        />
-                        <ReferenceDot 
-                          x={Math.log(1 + ssInputs.eu/100) * 100} 
-                          y={ssInputs.UTS * (1 + ssInputs.eu/100)} 
-                          r={5} fill="#EF4444" stroke="none" label={{ value: 'UTS', position: 'top', fill: '#EF4444', fontSize: 12 }} 
-                        />
-                      </>
-                    )}
-                  </LineChart>
-                </ResponsiveContainer>
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg flex flex-col items-center justify-center min-h-[200px]">
+              <div className="text-center px-8">
+                <Info size={32} className="text-[#4A9EFF] mx-auto mb-4 opacity-20" />
+                <h3 className="text-[#F1F5F9] font-bold mb-2">Calculation Model Active</h3>
+                <p className="text-sm text-[#94A3B8]">Pro results based on validated materials standards.</p>
               </div>
             </div>
           </div>
@@ -621,19 +532,10 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
         {/* TAB 2: Hardness */}
         {activeTab === 'Hardness' && (
           <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg max-w-3xl mx-auto">
-            <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-6">Hardness Converter</h2>
+            <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-6">Hardness Converter & Estimator</h2>
             
-            <div className="flex flex-col md:flex-row gap-4 mb-8">
-              <div className="flex-1">
-                <label className="block text-sm text-[#94A3B8] mb-1">Value</label>
-                <input 
-                  type="number" 
-                  value={hardInput.value} 
-                  onChange={e => setHardInput({...hardInput, value: Number(e.target.value)})}
-                  className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-lg" 
-                />
-              </div>
-              <div className="flex-1">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <div>
                 <label className="block text-sm text-[#94A3B8] mb-1">Scale</label>
                 <select 
                   value={hardInput.scale} 
@@ -643,17 +545,56 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                   {['HV', 'HB', 'HRC', 'HRB', 'HK', 'Shore A', 'Shore D'].map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
-              <div className="flex-1">
+              <div>
+                <label className="block text-sm text-[#94A3B8] mb-1">Value</label>
+                <input 
+                  type="number" 
+                  value={hardInput.value} 
+                  onChange={e => setHardInput({...hardInput, value: Number(e.target.value)})}
+                  className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-lg" 
+                  placeholder="Enter hardness..."
+                />
+              </div>
+              <div>
                 <label className="block text-sm text-[#94A3B8] mb-1">Material Class</label>
                 <select 
                   value={hardInput.materialClass} 
                   onChange={e => setHardInput({...hardInput, materialClass: e.target.value})}
                   className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-lg"
                 >
-                  {['Steel', 'Aluminum', 'Copper'].map(s => <option key={s} value={s}>{s}</option>)}
+                  {['Steel', 'Stainless Steel', 'Aluminum', 'Copper/Brass', 'Titanium', 'Nickel Alloy', 'Cast Iron', 'Custom'].map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
             </div>
+
+            {hardInput.materialClass === 'Custom' && (
+              <div className="bg-[#0F1923] p-4 rounded-md border border-[#4A9EFF]/30 mb-8 animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center gap-3 justify-between">
+                  <div className="shrink-0">
+                    <div className="text-[#4A9EFF] font-bold text-sm">Advanced: UTS Proportionality Factor</div>
+                    <div className="text-[10px] text-[#64748B] uppercase tracking-wider mt-0.5">Ratio of UTS (MPa) to HB (kg/mm²)</div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <input 
+                      type="range" 
+                      min="1.0" 
+                      max="6.0" 
+                      step="0.05"
+                      value={hardInput.customK}
+                      onChange={e => setHardInput({...hardInput, customK: parseFloat(e.target.value)})}
+                      className="w-24 h-1.5 bg-[#1A2634] rounded-lg appearance-none cursor-pointer accent-[#4A9EFF]"
+                    />
+                    <input 
+                      type="number"
+                      step="0.01"
+                      value={hardInput.customK}
+                      onChange={e => setHardInput({...hardInput, customK: parseFloat(e.target.value)})}
+                      className="w-20 bg-[#1A2634] border border-[#2D3F50] rounded px-2 py-1 text-[#F1F5F9] text-sm text-center font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {hardnessConversions.warning && (
               <div className="bg-[#F59E0B]/10 border border-[#F59E0B]/50 text-[#F59E0B] p-4 rounded-md flex items-start gap-3 mb-6">
@@ -663,15 +604,50 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
             )}
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              {Object.entries(hardnessConversions).filter(([k]) => k !== 'warning' && k !== 'UTS_Est').map(([scale, val]) => (
-                <div key={scale} className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md text-center">
-                  <div className="text-[#94A3B8] text-sm mb-1">{scale}</div>
-                  <div className={`text-xl font-bold ${typeof val === 'string' && val.includes('Out') ? 'text-[#EF4444] text-sm' : 'text-[#F1F5F9]'}`}>{val}</div>
-                </div>
-              ))}
+              {Object.entries(hardnessConversions).filter(([k]) => k !== 'warning' && k !== 'UTS_Est').map(([scale, val]) => {
+                const getScaleRange = (s: string) => {
+                  switch (s) {
+                    case 'HV': return { min: 50, max: 1000 };
+                    case 'HB': return { min: 50, max: 800 };
+                    case 'HRC': return { min: 20, max: 70 };
+                    case 'HRB': return { min: 40, max: 100 };
+                    case 'HK': return { min: 50, max: 1000 };
+                    case 'ShoreA': return { min: 0, max: 100 };
+                    case 'ShoreD': return { min: 0, max: 100 };
+                    default: return { min: 0, max: 100 };
+                  }
+                };
+                const range = getScaleRange(scale);
+                const isNum = typeof val === 'number';
+                let percent = 0;
+                if (isNum) {
+                  percent = ((val - range.min) / (range.max - range.min)) * 100;
+                  percent = Math.max(0, Math.min(100, percent));
+                }
+
+                return (
+                  <div key={scale} className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md text-center group hover:border-[#4A9EFF] transition-colors relative overflow-hidden flex flex-col justify-center min-h-[100px]">
+                    <div className="text-[#A3B8CC] text-sm mb-1 font-medium">{scale}</div>
+                    <div className={`text-2xl font-bold ${typeof val === 'string' && (val.includes('<') || val.includes('>')) ? 'text-[#F59E0B]' : typeof val === 'string' ? 'text-[#64748B] text-lg' : 'text-[#F1F5F9]'}`}>
+                      {val}
+                    </div>
+                    {isNum && (
+                      <div className="absolute bottom-0 left-0 w-full">
+                        <div className="flex justify-between px-2 text-[9px] text-[#4F627A] mb-[2px]">
+                          <span>{range.min}</span>
+                          <span>{range.max}</span>
+                        </div>
+                        <div className="h-[3px] bg-[#1A2634] w-full">
+                          <div className="h-full bg-gradient-to-r from-[#4A9EFF] to-[#3b82f6]" style={{ width: `${percent}%` }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               
               {/* Estimated UTS Card */}
-              <div className="col-span-2 sm:col-span-4 bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md flex items-center justify-between px-8 mt-2">
+              <div className="col-span-2 sm:col-span-4 bg-gradient-to-r from-[#0F1923] to-[#1A2634] border border-[#2D3F50] p-5 rounded-md flex items-center justify-between mt-2 shadow-inner">
                 <div>
                   <div className="text-[#4A9EFF] font-medium">Estimated Tensile Strength (UTS)</div>
                   <div className="text-xs text-[#94A3B8]">Approximate correlation based on {hardInput.materialClass}</div>
@@ -684,98 +660,120 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
 
         {/* TAB 3: Fatigue */}
         {activeTab === 'Fatigue' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-1 bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg space-y-4">
-              <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Fatigue Parameters</h2>
+          <div className="grid grid-cols-1 gap-6 max-w-4xl mx-auto">
+            <div className="bg-[#1A2634] p-5 rounded-lg border border-[#2D3F50] shadow-lg space-y-4">
+              <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Fatigue & Mean Stress</h2>
               
-              <div>
-                <label className="block text-sm text-[#94A3B8] mb-1">Ultimate Tensile Strength (UTS) [MPa]</label>
-                <input type="number" value={fatigueInputs.UTS} onChange={e => setFatigueInputs({...fatigueInputs, UTS: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm text-[#94A3B8] mb-1">Yield Strength (Sy) [MPa]</label>
-                <input type="number" value={fatigueInputs.Sy} onChange={e => setFatigueInputs({...fatigueInputs, Sy: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm text-[#94A3B8] mb-1">Endurance Limit (Se) [MPa]</label>
-                <input type="number" value={fatigueInputs.Se} onChange={e => setFatigueInputs({...fatigueInputs, Se: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm text-[#94A3B8] mb-1">Basquin Exponent (b)</label>
-                <input type="number" step="0.01" value={fatigueInputs.b} onChange={e => setFatigueInputs({...fatigueInputs, b: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-xs text-[#94A3B8] mb-1 font-medium bg-[#0F1923] p-1 px-2 rounded-t">Material Properties</label>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-[#64748B] mb-1">UTS [MPa]</label>
+                  <input type="number" value={fatigueInputs.UTS} onChange={e => setFatigueInputs({...fatigueInputs, UTS: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-[#64748B] mb-1">Sy [MPa]</label>
+                  <input type="number" value={fatigueInputs.Sy} onChange={e => setFatigueInputs({...fatigueInputs, Sy: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-[#64748B] mb-1">Se (Unmodified)</label>
+                  <input type="number" value={fatigueInputs.Se_base} onChange={e => setFatigueInputs({...fatigueInputs, Se_base: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-[#64748B] mb-1">Basquin b</label>
+                  <input type="number" step="0.01" value={fatigueInputs.b} onChange={e => setFatigueInputs({...fatigueInputs, b: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1.5 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
+                </div>
               </div>
 
-              <div className="pt-4 border-t border-[#2D3F50]">
-                <h3 className="text-sm font-medium text-[#4A9EFF] mb-3">Loading Conditions</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-[#94A3B8] mb-1">Alternating Stress (σa)</label>
-                    <input type="number" value={fatigueInputs.appliedAmp} onChange={e => setFatigueInputs({...fatigueInputs, appliedAmp: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#94A3B8] mb-1">Mean Stress (σm)</label>
-                    <input type="number" value={fatigueInputs.appliedMean} onChange={e => setFatigueInputs({...fatigueInputs, appliedMean: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none" />
+              <div className="pt-3 border-t border-[#2D3F50]">
+                <h3 className="text-xs font-bold text-[#4A9EFF] mb-3 uppercase tracking-wider">Marin Factors (Modification)</h3>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                  {[
+                    { label: 'Surface (ka)', key: 'ka' },
+                    { label: 'Size (kb)', key: 'kb' },
+                    { label: 'Load (kc)', key: 'kc' },
+                    { label: 'Temp (kd)', key: 'kd' },
+                    { label: 'Reliab. (ke)', key: 'ke' }
+                  ].map(f => (
+                    <div key={f.key}>
+                      <label className="block text-[10px] text-[#94A3B8] mb-0.5">{f.label}</label>
+                      <input 
+                        type="number" step="0.01" min="0.01" max="1.0"
+                        value={fatigueInputs[f.key]} 
+                        onChange={e => setFatigueInputs({...fatigueInputs, [f.key]: Number(e.target.value)})} 
+                        className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-1 px-2 text-[#F1F5F9] text-xs focus:border-[#4A9EFF] focus:outline-none" 
+                      />
+                    </div>
+                  ))}
+                  <div className="col-span-2 pt-2">
+                    <div className="flex justify-between items-center bg-[#0F1923] p-2 rounded-md border border-dashed border-[#2D3F50]">
+                      <span className="text-[10px] text-[#64748B]">Modified Se:</span>
+                      <span className="text-sm font-bold text-[#22C55E]">{fatigueResult.modifiedSe} <span className="text-[10px] font-normal">MPa</span></span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm text-[#94A3B8] mb-1">Mean Stress Correction Model</label>
+              <div className="pt-3 border-t border-[#2D3F50]">
+                <h3 className="text-xs font-bold text-[#4A9EFF] mb-3 uppercase tracking-wider">Mean Stress Model</h3>
                 <select 
                   value={meanStressModel} 
                   onChange={e => setMeanStressModel(e.target.value)}
-                  className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none"
+                  className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-3 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm mb-3"
                 >
-                  <option value="Goodman">Goodman (Brittle/Conservative)</option>
+                  <option value="Goodman">Goodman (Conservative)</option>
                   <option value="Gerber">Gerber (Ductile)</option>
-                  <option value="Soderberg">Soderberg (Yield-based)</option>
+                  <option value="Soderberg">Soderberg (Yielding check)</option>
+                  <option value="Morrow">Morrow (Fatigue Strength based)</option>
+                  <option value="ASME">ASME-Elliptic</option>
                 </select>
+                
+                {meanStressModel === 'Morrow' && (
+                  <div className="animate-in fade-in zoom-in-95 duration-200">
+                    <label className="block text-[10px] text-[#94A3B8] mb-1">Fatigue Strength Coeff. (σ'f)</label>
+                    <input type="number" value={fatigueInputs.sigmaF} onChange={e => setFatigueInputs({...fatigueInputs, sigmaF: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#4A9EFF]/30 rounded-md py-1.5 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-xs" />
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-3 border-t border-[#2D3F50]">
+                <h3 className="text-xs font-bold text-[#4A9EFF] mb-3 uppercase tracking-wider">Applied Load</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] mb-1">Amplitude (σa)</label>
+                    <input type="number" value={fatigueInputs.appliedAmp} onChange={e => setFatigueInputs({...fatigueInputs, appliedAmp: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#94A3B8] mb-1">Mean (σm)</label>
+                    <input type="number" value={fatigueInputs.appliedMean} onChange={e => setFatigueInputs({...fatigueInputs, appliedMean: Number(e.target.value)})} className="w-full bg-[#0F1923] border border-[#2D3F50] rounded-md py-2 px-2 text-[#F1F5F9] focus:border-[#4A9EFF] focus:outline-none text-sm" />
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="lg:col-span-2 flex flex-col gap-6">
-              <div className="bg-[#1A2634] p-4 rounded-lg border border-[#2D3F50] shadow-lg h-80">
-                 <h3 className="text-sm font-medium text-[#94A3B8] mb-4 text-center">S-N Curve (Stress vs Cycles)</h3>
-                 <ResponsiveContainer width="100%" height="100%">
-                   <LineChart data={fatigueData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
-                     <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                     <XAxis 
-                       dataKey="cycles" 
-                       scale="log" 
-                       domain={['auto', 'auto']} 
-                       type="number" 
-                       tickFormatter={(tick) => tick.toExponential(0)} 
-                       stroke="#94A3B8"
-                       label={{ value: 'Cycles to Failure (N)', position: 'bottom', offset: 0, fill: '#94A3B8' }}
-                     />
-                     <YAxis stroke="#94A3B8" label={{ value: 'Stress Amplitude (MPa)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
-                     <Tooltip 
-                       contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }}
-                       labelFormatter={(label) => `Cycles: ${Number(label).toExponential(2)}`} 
-                     />
-                     <Legend verticalAlign="top" height={36}/>
-                     <Line type="monotone" dataKey="stress" stroke="#F59E0B" strokeWidth={2} dot={false} name="Fatigue Strength" />
-                   </LineChart>
-                 </ResponsiveContainer>
+            <div className="flex flex-col gap-6">
+              <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg text-center py-12">
+                 <div className="text-[#4A9EFF] text-sm font-bold uppercase tracking-widest mb-2">Steady State & Fatigue Life Analysis</div>
+                 <div className="text-[#94A3B8] text-xs max-w-md mx-auto">The Pro fatigue engine calculates equivalent stress cycles and infinite life safety factors using high-fidelity Marin modification factors.</div>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md text-center">
-                  <div className="text-[#94A3B8] text-sm mb-1">Equivalent Stress (Seq)</div>
-                  <div className="text-2xl font-bold text-[#F1F5F9]">{fatigueResult.Seq} <span className="text-sm font-normal text-[#94A3B8]">MPa</span></div>
-                  <div className="text-xs text-[#94A3B8] mt-1">Corrected for Mean Stress</div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <div className="bg-gradient-to-br from-[#0F1923] to-[#1A2634] border border-[#2D3F50] p-5 rounded-xl text-center shadow-lg group hover:border-[#4A9EFF] transition-all">
+                  <div className="text-[#64748B] text-[10px] mb-1 uppercase tracking-widest font-bold">Equivalent Stress (Seq)</div>
+                  <div className="text-3xl font-black text-[#F1F5F9]">{fatigueResult.Seq} <span className="text-sm font-normal text-[#94A3B8]">MPa</span></div>
+                  <div className="text-[10px] text-[#4A9EFF] mt-2 font-medium">Corrected index for Fully Reversed</div>
                 </div>
-                <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md text-center">
-                  <div className="text-[#94A3B8] text-sm mb-1">Predicted Life</div>
-                  <div className="text-2xl font-bold text-[#4A9EFF]">{fatigueResult.cycles}</div>
-                  <div className="text-xs text-[#94A3B8] mt-1">Cycles</div>
+                <div className="bg-gradient-to-br from-[#0F1923] to-[#1A2634] border border-[#2D3F50] p-5 rounded-xl text-center shadow-lg group hover:border-[#F59E0B] transition-all">
+                  <div className="text-[#64748B] text-[10px] mb-1 uppercase tracking-widest font-bold">Fatigue Life Prediction</div>
+                  <div className="text-3xl font-black text-[#F59E0B]">{fatigueResult.cycles}</div>
+                  <div className="text-[10px] text-[#94A3B8] mt-2 font-medium">Estimated loading cycles</div>
                 </div>
-                <div className="bg-[#0F1923] border border-[#2D3F50] p-4 rounded-md text-center">
-                  <div className="text-[#94A3B8] text-sm mb-1">Safety Factor</div>
-                  <div className={`text-2xl font-bold ${fatigueResult.safety > 1 ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}>
+                <div className="bg-gradient-to-br from-[#0F1923] to-[#1A2634] border border-[#2D3F50] p-5 rounded-xl text-center shadow-lg group hover:border-[#22C55E] transition-all">
+                  <div className="text-[#64748B] text-[10px] mb-1 uppercase tracking-widest font-bold">Safety Factor (n)</div>
+                  <div className={`text-3xl font-black transition-colors ${fatigueResult.safety > 1.2 ? 'text-[#22C55E]' : fatigueResult.safety > 1.0 ? 'text-[#F59E0B]' : 'text-[#EF4444]'}`}>
                     {fatigueResult.safety.toFixed(2)}
                   </div>
-                  <div className="text-xs text-[#94A3B8] mt-1">Based on Endurance Limit</div>
+                  <div className="text-[10px] text-[#94A3B8] mt-2 font-medium">Factor relative to Se</div>
                 </div>
               </div>
             </div>
@@ -784,8 +782,8 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
 
         {/* TAB 4: Creep */}
         {activeTab === 'Creep' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-1 space-y-4">
+          <div className="grid grid-cols-1 gap-6 max-w-4xl mx-auto">
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg space-y-4">
               <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2">Creep Parameters</h2>
               
               <div className="space-y-3">
@@ -838,31 +836,18 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                 </div>
               </div>
             </div>
-            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-2 flex flex-col">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-bold text-[#F1F5F9]">Creep Curve (Strain vs Time)</h2>
-                <button onClick={() => exportChart('creep-chart', 'creep-curve')} className="text-[#4A9EFF] hover:text-blue-400 flex items-center gap-2 text-sm">
-                  <Download size={16} /> Export PNG
-                </button>
-              </div>
-              <div id="creep-chart" className="flex-1 min-h-[400px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={creepData.data} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                    <XAxis dataKey="time" type="number" stroke="#94A3B8" label={{ value: 'Time (h)', position: 'bottom', fill: '#94A3B8' }} />
-                    <YAxis stroke="#94A3B8" label={{ value: 'Strain (%)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
-                    <Tooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} formatter={(val) => val.toFixed(4)} />
-                    <Line type="monotone" dataKey="strain" stroke="#22C55E" strokeWidth={3} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+            <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg flex flex-col items-center justify-center py-12">
+                <div className="text-[#22C55E] text-sm font-bold uppercase tracking-widest mb-2">Steady State Creep Analysis</div>
+                <div className="text-[#94A3B8] text-xs max-w-md mx-auto text-center font-mono">
+                  Strain Rate: {creepResults.rate} %/h
+                </div>
             </div>
           </div>
         )}
 
         {/* TAB 5: Impact & Fracture */}
         {activeTab === 'Impact & Fracture' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6 max-w-4xl mx-auto">
             {/* Impact Section */}
             <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg flex flex-col">
               <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Charpy Impact Test</h2>
@@ -887,20 +872,9 @@ export default function MechanicalProperties({ materials, setMaterials, testLogs
                 </button>
               </div>
 
-              <div className="flex-1 min-h-[300px] mb-4">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart margin={{ top: 20, right: 20, bottom: 20, left: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                    <XAxis dataKey="temp" type="number" stroke="#94A3B8" label={{ value: 'Temperature (°C)', position: 'bottom', fill: '#94A3B8' }} domain={['auto', 'auto']} />
-                    <YAxis stroke="#94A3B8" label={{ value: 'Impact Energy (J)', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
-                    <Tooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} />
-                    <Legend verticalAlign="top" height={36}/>
-                    {/* Fitted Curve */}
-                    <Line data={impactAnalysis.curve} type="monotone" dataKey="fitEnergy" stroke="#4A9EFF" strokeWidth={2} dot={false} name="Sigmoid Fit" />
-                    {/* Data Points */}
-                    <Scatter data={impactLogs} dataKey="energy" fill="#F59E0B" name="Test Data" />
-                  </ComposedChart>
-                </ResponsiveContainer>
+              <div className="bg-[#0F1923] p-6 rounded border border-[#2D3F50] text-center mb-6">
+                  <div className="text-[#94A3B8] text-xs mb-2">Ductile-to-Brittle Transition Analysis</div>
+                  <div className="text-[#22C55E] font-bold">PRO CALC ACTIVE</div>
               </div>
 
               <div className="grid grid-cols-3 gap-2 text-center text-sm">

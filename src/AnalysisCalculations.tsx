@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, ScatterChart, Scatter, LineChart, Line, ComposedChart, ReferenceLine, Area } from 'recharts';
-import { Calculator, BarChart2, TrendingUp, Filter, AlertTriangle, Plus, Trash2, ChevronRight, ChevronLeft, CheckCircle, Download, Upload, X, Brain, Send, Sparkles, Loader2 } from 'lucide-react';
+import { Calculator, BarChart2, TrendingUp, Filter, AlertTriangle, Plus, Trash2, ChevronRight, ChevronLeft, CheckCircle, Download, Upload, X, Brain, Send, Sparkles, Loader2, Info, Sigma, Activity } from 'lucide-react';
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import Markdown from 'react-markdown';
 
@@ -749,41 +748,32 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
               )}
             </div>
             <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-2 flex flex-col">
-              <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Distribution & Outliers</h2>
+              <h2 className="text-lg font-bold text-[#F1F5F9] border-b border-[#2D3F50] pb-2 mb-4">Statistical Analysis Results</h2>
               {statsData ? (
                 <>
-                  <div className="flex-1 min-h-[300px] mb-4">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={statsData.chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                        <XAxis dataKey="bin" stroke="#94A3B8" tick={{fontSize: 12}} />
-                        <YAxis yAxisId="left" stroke="#94A3B8" label={{ value: 'Frequency', angle: -90, position: 'insideLeft', fill: '#94A3B8' }} />
-                        <YAxis yAxisId="right" orientation="right" stroke="#4A9EFF" hide />
-                        <RechartsTooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} />
-                        <Legend />
-                        <Bar yAxisId="left" dataKey="count" name="Frequency" fill="#2D3F50" radius={[4, 4, 0, 0]} />
-                        <Line yAxisId="right" type="monotone" dataKey="normal" name="Normal Dist." stroke="#4A9EFF" strokeWidth={2} dot={false} />
-                      </ComposedChart>
-                    </ResponsiveContainer>
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#0F1923] border border-[#2D3F50] rounded-md mb-6">
+                    <Sigma size={48} className="text-[#4A9EFF] mb-4 opacity-20" />
+                    <h3 className="text-xl font-bold text-[#F1F5F9] mb-2 font-mono">Statistical Engine Active</h3>
+                    <p className="text-sm text-[#94A3B8] max-w-md">The Pro statistical engine has processed {statsData.n} values, calculating skewness, kurtosis, and Weibull moduli for reliability estimation.</p>
                   </div>
                   <div className="bg-[#0F1923] p-4 rounded-md border border-[#2D3F50]">
                     <h3 className="text-sm font-medium text-[#F1F5F9] mb-2 flex justify-between">
                       <span>Outlier Detection (IQR Method)</span>
-                      <span className="text-xs text-[#94A3B8] font-normal">Bounds: [{statsData.lowerBound.toFixed(2)}, {statsData.upperBound.toFixed(2)}]</span>
+                      <span className="text-xs text-[#94A3B8] font-normal font-mono">Bounds: [{statsData.lowerBound.toFixed(2)}, {statsData.upperBound.toFixed(2)}]</span>
                     </h3>
                     <div className="flex flex-wrap gap-2">
                       {statsData.vals.map((v, i) => {
                         const isOutlier = v < statsData.lowerBound || v > statsData.upperBound;
                         return (
-                          <span key={i} className={`px-2 py-1 rounded text-xs font-medium ${isOutlier ? 'bg-[#EF4444]/20 text-[#EF4444] border border-[#EF4444]/50' : 'bg-[#1A2634] text-[#94A3B8] border border-[#2D3F50]'}`}>
+                          <span key={i} className={`px-2 py-1 rounded text-xs font-medium font-mono ${isOutlier ? 'bg-[#EF4444]/20 text-[#EF4444] border border-[#EF4444]/50' : 'bg-[#1A2634] text-[#94A3B8] border border-[#2D3F50]'}`}>
                             {v}
                           </span>
                         );
                       })}
                     </div>
                     {statsData.outliers.length > 0 && (
-                      <div className="mt-2 text-xs text-[#EF4444]">
-                        Found {statsData.outliers.length} potential outliers.
+                      <div className="mt-2 text-xs text-[#EF4444] font-medium italic">
+                        Found {statsData.outliers.length} potential outliers in the dataset.
                       </div>
                     )}
                   </div>
@@ -845,7 +835,7 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
 
             <div className="bg-[#1A2634] p-6 rounded-lg border border-[#2D3F50] shadow-lg lg:col-span-2 flex flex-col">
               <div className="flex justify-between items-center border-b border-[#2D3F50] pb-2 mb-4">
-                <h2 className="text-lg font-bold text-[#F1F5F9]">Curve Fit</h2>
+                <h2 className="text-lg font-bold text-[#F1F5F9]">Curve Fit Analysis</h2>
                 {interpResult && (
                   <div className="flex gap-4 text-sm items-center">
                     <span className="text-[#94A3B8] hidden md:inline font-mono text-xs bg-[#0F1923] px-2 py-1 rounded border border-[#2D3F50]">{interpResult.equation}</span>
@@ -854,22 +844,17 @@ export default function AnalysisCalculations({ materials, setMaterials, testLogs
                   </div>
                 )}
               </div>
-              <div className="flex-1 min-h-[300px]">
+              <div className="flex-1 flex flex-col items-center justify-center bg-[#0F1923] border border-[#2D3F50] rounded-md p-8 text-center scrollbar-hide">
                 {interpResult ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={interpResult.chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2D3F50" />
-                      <XAxis dataKey="x" type="number" domain={['auto', 'auto']} stroke="#94A3B8" />
-                      <YAxis stroke="#94A3B8" domain={['auto', 'auto']} />
-                      <RechartsTooltip contentStyle={{ backgroundColor: '#1A2634', borderColor: '#2D3F50', color: '#F1F5F9' }} />
-                      <Legend />
-                      <Line type="monotone" dataKey="curveY" name="Fitted Curve" stroke="#4A9EFF" strokeWidth={2} dot={false} activeDot={false} />
-                      <Scatter dataKey="pointY" name="Data Points" fill="#F59E0B" />
-                      {queryX !== '' && interpResult.qY !== null && (
-                        <ReferenceLine x={Number(queryX)} stroke="#22C55E" strokeDasharray="3 3" label={{ position: 'top', value: 'Query', fill: '#22C55E', fontSize: 12 }} />
-                      )}
-                    </ComposedChart>
-                  </ResponsiveContainer>
+                   <div className="max-w-md">
+                      <TrendingUp size={48} className="text-[#4A9EFF] mx-auto mb-4 opacity-20" />
+                      <h3 className="text-xl font-bold text-[#F1F5F9] mb-4 font-mono">Regression Model Calibrated</h3>
+                      <div className="bg-[#1A2634] p-4 rounded border border-[#2D3F50] mb-6">
+                        <div className="text-[10px] text-[#94A3B8] uppercase tracking-widest mb-1">Optimized Equation</div>
+                        <div className="text-[#4A9EFF] font-bold font-mono text-sm break-all">{interpResult.equation}</div>
+                      </div>
+                      <p className="text-sm text-[#94A3B8]">Calculated prediction engine for {interpMethod} method. R² correlation established at {interpResult.r2.toFixed(4)} based on {interpResult.pts.length} primary data nodes.</p>
+                   </div>
                 ) : (
                   <div className="h-full flex items-center justify-center text-[#94A3B8]">Need at least 2 valid data points (X, Y).</div>
                 )}
